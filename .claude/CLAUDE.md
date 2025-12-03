@@ -216,3 +216,28 @@ Be encouraging. This course is designed for people who aren't developers. If som
 1. The setup is the hardest part
 2. AI will do most of the work once configured
 3. Live sessions will help with any issues
+
+## Advanced Skills
+
+For advanced students who want to go deeper, this repo includes optional skills in `.claude/skills/`:
+
+### N8N MCP API Skill
+**File**: `.claude/skills/n8n-mcp-api.md`
+
+**What it teaches**: Programmatic workflow modification using N8N MCP (Model Context Protocol) tools
+
+**When to use it**:
+- You want to automate workflow modifications
+- You're comfortable with APIs and want to go beyond the UI
+- You have complex workflows (30+ nodes) that need surgical edits
+- You want to learn workflow-as-code approaches
+
+**Topics covered**:
+- `n8n_get_workflow`, `n8n_update_partial_workflow`, `n8n_validate_workflow` tools
+- Connection management and IF node branching
+- Subagent delegation patterns
+- Real-world examples from production workflows
+- Troubleshooting and error recovery
+
+**Note**: This is an advanced skill. Students should master the N8N UI first (covered in Sessions 1-3) before exploring programmatic approaches.
+
