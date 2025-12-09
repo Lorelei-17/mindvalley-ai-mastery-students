@@ -1,6 +1,6 @@
 # Architecture Overview
 
-**Understanding the 7-agent email automation system**
+**Understanding the 6-agent email automation system**
 
 Welcome to the architecture guide! This document helps you understand what you're building and how all the pieces fit together.
 
@@ -9,7 +9,7 @@ Welcome to the architecture guide! This document helps you understand what you'r
 ## Quick Links
 
 - [Simple View](#the-simplest-view) - 3-box overview
-- [7 Agents](#the-7-agents) - Meet your AI team
+- [6 Agents](#the-6-agents) - Meet your AI team
 - [Data Flow](#data-flow-example) - Watch an email get processed
 - [Component Reference](#component-reference) - Quick lookup table
 
@@ -19,7 +19,7 @@ Welcome to the architecture guide! This document helps you understand what you'r
 
 ```mermaid
 flowchart LR
-    IN[Customer Email] --> PROCESS[7 AI Agents<br/>Working Together]
+    IN[Customer Email] --> PROCESS[6 AI Agents<br/>Working Together]
     PROCESS --> OUT[Response Sent<br/>with Your Approval]
 
     style IN fill:#fff3e0,stroke:#e65100,stroke-width:3px
@@ -31,7 +31,7 @@ flowchart LR
 
 ---
 
-## The 7 Agents
+## The 6 Agents
 
 ```mermaid
 flowchart LR
@@ -39,24 +39,21 @@ flowchart LR
         EMAIL[Customer Email]
     end
 
-    subgraph processing["THE 7 AGENTS"]
+    subgraph processing["THE 6 AGENTS"]
         direction TB
-        CINNAMON[CinnaMon<br/>Sentiment] --> LIBRARIAN[Librarian<br/>KB Search]
-        LIBRARIAN --> HATCH[Hatch<br/>Expert]
+        CLASSIFY[Classification Filter<br/>Gateway] --> CINNAMON[CinnaMon<br/>Sentiment]
+        CINNAMON --> HATCH[Hatch<br/>Expert]
         HATCH --> SUGAR[Sugar<br/>Drafter]
         SUGAR --> BISHOP[Bishop<br/>QA]
-        BISHOP --> ROUTER{Router}
+        BISHOP --> HOLLER[Holler<br/>Slack Alert]
     end
 
     subgraph output["OUTPUT"]
-        SEND[Send Email]
-        HOLLER[Holler<br/>Slack Alert]
         HUMAN[Human Review]
+        SEND[Send Email]
     end
 
-    EMAIL --> CINNAMON
-    ROUTER -->|SHIP| SEND
-    ROUTER -->|ESCALATE| HOLLER
+    EMAIL --> CLASSIFY
     HOLLER --> HUMAN
     HUMAN --> SEND
 
@@ -69,13 +66,14 @@ flowchart LR
 
 | Agent | Job | One-Line Description |
 |-------|-----|---------------------|
+| **Classification Filter** | Gateway | "I filter out non-customer emails first" |
 | **CinnaMon** | Sentiment | "I read the emotional temperature" |
-| **Librarian** | KB Search | "I find answers in your documents" |
-| **Hatch** | Expert | "I synthesize and analyze" |
-| **Sugar** | Drafter | "I write in your voice" |
-| **Bishop** | QA | "I check before sending" |
-| **Router** | Decision | "I decide: ship or escalate?" |
+| **Hatch** | Expert | "I synthesize and analyze (with Librarian tool)" |
+| **Sugar** | Drafter | "I write in your voice (with Librarian tool)" |
+| **Bishop** | QA | "I check before sending (with Librarian tool)" |
 | **Holler** | Notification | "I ping you when needed" |
+
+**Note**: Librarian is a TOOL (not a pipeline agent) called on-demand by Hatch, Sugar, and Bishop. Router is a Switch node in W2 (Approval Handler), not an AI agent in W1.
 
 ---
 
@@ -121,40 +119,46 @@ Let's follow a real email through the system:
    "Do you have gluten-free options?"
    ↓
 
-2. CINNAMON (2 sec)
+2. CLASSIFICATION FILTER (1 sec)
+   Determines: This is a customer email (not spam/internal)
+   ↓
+
+3. CINNAMON (2 sec)
    Detects: Curious, first-time visitor
    Urgency: Low-medium
    ↓
 
-3. LIBRARIAN (3 sec)
-   Searches KB, finds:
-   - Menu items
-   - Allergen policy
-   - Cross-contamination disclaimer
-   ↓
-
 4. HATCH (4 sec)
+   Calls Librarian Tool to search KB, finds:
+   - Menu items, allergen policy, cross-contamination disclaimer
    Synthesizes answer:
    "Chicken is GF, these sides are safe,
    mention cross-contamination risk"
    ↓
 
 5. SUGAR (5 sec)
+   Calls Librarian Tool for brand voice examples
    Drafts in your voice:
    "Hey! Great news about our GF options..."
    ↓
 
 6. BISHOP (3 sec)
+   Calls Librarian Tool to verify facts
    Checks: Facts ✓ Tone ✓ Complete ✓
    Verdict: SHIP
    ↓
 
-7. ROUTER
-   → Direct to SEND (no escalation needed)
+7. HOLLER (1 sec)
+   Sends Slack notification with draft + approval buttons
    ↓
 
-8. EMAIL SENT
-   Total time: ~17 seconds
+8. HUMAN APPROVAL (W2)
+   You click "SHIP" in Slack
+   Router (Switch node in W2) → Gmail send
+   ↓
+
+9. EMAIL SENT
+   Total time: ~16 seconds + human approval
 ```
 
 ---
@@ -165,26 +169,27 @@ Let's follow a real email through the system:
 
 | Component | Type | AI Model | When You See It |
 |-----------|------|----------|-----------------|
+| Classification Filter | Agent | Claude | Session 1 (Gateway) |
 | CinnaMon | Agent | Claude | Session 1 |
-| Librarian | Agent | **Gemini** (required) | Session 2 |
 | Hatch | Agent | Claude | Session 2 |
 | Sugar | Agent | Claude | Session 2 |
 | Bishop | Agent | Claude | Session 3 |
-| Router | Agent | Claude | Session 3 |
 | Holler | Agent | N8N/Slack | Session 3 |
+| **Librarian** | **TOOL** | **Gemini** (required) | Session 2 (called by Hatch/Sugar/Bishop) |
+| Router | Switch Node (W2) | N/A | Session 3 (Approval Handler only) |
 
-**Important:** Librarian MUST use Gemini because File Search is Gemini-only.
+**Important:** Librarian is a TOOL (not a pipeline agent) that uses Gemini File Search. Router is a Switch node in W2, not an AI agent.
 
 ### What You Customize
 
-| Agent | Customization Level | What You Change |
-|-------|---------------------|-----------------|
+| Component | Customization Level | What You Change |
+|-----------|---------------------|-----------------|
+| Classification Filter | Low | Email filtering rules |
 | CinnaMon | Low | Rarely touched |
-| Librarian | Low | Just your store IDs |
+| Librarian (Tool) | Low | Just your store IDs |
 | Hatch | Medium | Domain expertise |
 | **Sugar** | **HIGH** | Your entire brand voice |
 | Bishop | Medium | QA criteria |
-| Router | Low | Routing rules |
 | **Holler** | **HIGH** | Slack format, escalation triggers |
 
 **Focus your time on Sugar and Holler** - they define your customer experience.
@@ -193,32 +198,39 @@ Let's follow a real email through the system:
 
 ## Two-Workflow Architecture
 
-The system runs as two separate N8N workflows:
+The system runs as two separate N8N workflows (plus a gateway):
 
 ```mermaid
 flowchart TB
-    subgraph wf1["WORKFLOW 1: Processing"]
-        direction LR
-        G1[Gmail] --> P1[7 Agents]
-        P1 --> S1[Slack Notify]
+    subgraph gateway["CLASSIFICATION FILTER (Gateway)"]
+        EMAIL[Gmail] --> FILTER[Classification<br/>Filter]
     end
 
-    subgraph wf2["WORKFLOW 2: Approval"]
+    subgraph wf1["WORKFLOW 1: Processing"]
         direction LR
-        S2[Slack Trigger] --> D2{Decision}
+        P1[6 Agents:<br/>CinnaMon → Hatch → Sugar → Bishop → Holler]
+    end
+
+    subgraph wf2["WORKFLOW 2: Approval Handler"]
+        direction LR
+        S2[Slack Trigger] --> D2{Router<br/>Switch Node}
         D2 --> SEND2[Send Email]
     end
 
+    FILTER -.->|Customer emails only| P1
+    P1 --> S1[Slack Notify]
     S1 -.->|You reply| S2
 
+    style gateway fill:#fff3e0,stroke:#e65100,stroke-width:2px
     style wf1 fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
-    style wf2 fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    style wf2 fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
 ```
 
-**Why two workflows?**
-1. Processing is automatic (no waiting)
-2. Approval waits for you (human-gated)
-3. If Slack is down, processing still works
+**Why separate workflows?**
+1. Classification Filter runs first (gateway before main processing)
+2. W1 Processing is automatic (no waiting)
+3. W2 Approval waits for you (human-gated)
+4. If Slack is down, W1 still processes
 
 ---
 
@@ -239,7 +251,10 @@ flowchart TB
 A: The architecture is modular. Add agents as N8N workflow steps.
 
 **Q: Can I use GPT instead of Claude?**
-A: Yes for most agents. But Librarian MUST use Gemini (File Search requirement).
+A: Yes for agents. But Librarian Tool MUST use Gemini (File Search requirement).
+
+**Q: Why is Librarian a tool, not an agent in the pipeline?**
+A: Librarian is called ON-DEMAND by Hatch, Sugar, and Bishop only when they need KB info. Not every email needs KB search.
 
 **Q: What if Slack is down?**
 A: Workflow 1 still processes. You just won't get notifications until Slack is back.
