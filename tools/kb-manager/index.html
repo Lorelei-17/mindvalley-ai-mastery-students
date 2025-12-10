@@ -1240,6 +1240,7 @@
           <div class="store-selector" id="storeSelectorContainer" style="display: none;">
             <label for="storeSelect">Store:</label>
             <select id="storeSelect"></select>
+            <button class="btn btn-danger" id="deleteStoreBtn" title="Delete current store" style="padding: 0.625rem;">🗑️</button>
           </div>
           <button class="theme-toggle" id="themeToggle" title="Toggle theme">
             <span class="icon-moon">🌙</span>
@@ -1512,6 +1513,7 @@
     const elements = {
       storeSelect: $('storeSelect'),
       storeSelectorContainer: $('storeSelectorContainer'),
+      deleteStoreBtn: $('deleteStoreBtn'),
       uploadSection: $('uploadSection'),
       documentsSection: $('documentsSection'),
       uploadZone: $('uploadZone'),
@@ -1750,6 +1752,19 @@
       });
     }
 
+    async function deleteStore(storeId) {
+      if (!state.apiKey) throw new Error('API key required');
+      if (!isDirectMode() && !ensureConfigured()) throw new Error('N8N webhook URL not configured');
+      if (isDirectMode()) {
+        // Direct Gemini API call
+        return await directApiCall(`/${storeId}`, { method: 'DELETE' });
+      }
+      return await postWebhook('kb-delete-store', {
+        apiKey: state.apiKey,
+        storeId: storeId
+      });
+    }
+
     // ============================================
     // UI Functions
     // ============================================
@@ -1914,6 +1929,28 @@
       });
     }
 
+    function showDeleteStoreConfirmModal(storeId, storeName) {
+      showModal({
+        title: 'Delete Store',
+        description: 'This will delete ALL documents in this store',
+        body: `
+          <div style="color: var(--text-secondary); margin-bottom: 1rem;">
+            Are you sure you want to delete <strong style="color: var(--text-primary);">${storeName}</strong>?
+          </div>
+          <div style="padding: 1rem; background: var(--warning-bg); border-left: 3px solid var(--warning); border-radius: var(--radius-sm);">
+            <strong style="color: var(--warning);">⚠️ Warning:</strong>
+            <div style="color: var(--text-secondary); margin-top: 0.5rem; font-size: 0.875rem;">
+              All documents in this store will be permanently deleted. This action cannot be undone.
+            </div>
+          </div>
+        `,
+        footer: `
+          <button class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+          <button class="btn btn-primary" style="background: var(--error);" onclick="handleDeleteStoreConfirm('${storeId}', '${storeName}')">Delete Store</button>
+        `
+      });
+    }
+
     // ============================================
     // Event Handlers
     // ============================================
@@ -1974,8 +2011,7 @@
       try {
         hideModal();
         addToLog('↻', `Creating store: ${name}...`);
-        const response = await createStore(name);
-        const newStore = response.corpus || response.store || response;
+        const newStore = await createStore(name);
         state.stores.push(newStore);
         state.currentStore = newStore.name;
         localStorage.setItem('current_store', state.currentStore);
@@ -2022,6 +2058,44 @@
         await loadDocuments();
       } catch (error) {
         addToLog('✕', `Failed: ${error.message}`);
+        showToast(error.message, 'error');
+      }
+    }
+
+    function handleDeleteStoreClick() {
+      if (!state.currentStore) {
+        showToast('No store selected', 'error');
+        return;
+      }
+      const store = state.stores.find(s => s.name === state.currentStore);
+      if (!store) {
+        showToast('Store not found', 'error');
+        return;
+      }
+      showDeleteStoreConfirmModal(state.currentStore, store.displayName);
+    }
+
+    async function handleDeleteStoreConfirm(storeId, storeName) {
+      hideModal();
+      try {
+        addToLog('🗑', `Deleting store: ${storeName}...`);
+        await deleteStore(storeId);
+        addToLog('✓', `Deleted store: ${storeName}`);
+        showToast(`Store "${storeName}" deleted`, 'success');
+
+        // Remove from state
+        state.stores = state.stores.filter(s => s.name !== storeId);
+
+        // Clear current store if it was deleted
+        if (state.currentStore === storeId) {
+          state.currentStore = null;
+          localStorage.removeItem('current_store');
+        }
+
+        // Reload stores and UI
+        await loadStores();
+      } catch (error) {
+        addToLog('✕', `Failed to delete store: ${error.message}`);
         showToast(error.message, 'error');
       }
     }
@@ -2140,11 +2214,19 @@
       clearActivityLog();
     });
 
+    // Delete store button
+    elements.deleteStoreBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      handleDeleteStoreClick();
+    });
+
     // Global functions for onclick handlers
     window.handleWelcomeConnect = handleWelcomeConnect;
     window.handleCreateStore = handleCreateStore;
     window.handleDeleteClick = handleDeleteClick;
     window.handleDeleteConfirm = handleDeleteConfirm;
+    window.handleDeleteStoreClick = handleDeleteStoreClick;
+    window.handleDeleteStoreConfirm = handleDeleteStoreConfirm;
     window.hideModal = hideModal;
 
     // ============================================
