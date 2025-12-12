@@ -1,0 +1,657 @@
+{
+  "name": "Echo Brand Voice Analysis (TASK-017)",
+  "description": "Analyzes writing samples to extract brand voice profiles. Supports three modes: Personal, Company, or Combined. Output is XML snippet for YGM integration.",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Echo Brand Voice Analysis",
+        "formDescription": "Analyze writing samples to create a brand voice profile for AI agents.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Voice Type",
+              "fieldType": "dropdown",
+              "requiredField": true,
+              "fieldOptions": {
+                "values": [
+                  {"option": "personal"},
+                  {"option": "company"},
+                  {"option": "combined"}
+                ]
+              }
+            },
+            {
+              "fieldLabel": "Person Name",
+              "fieldType": "text",
+              "requiredField": false,
+              "placeholder": "e.g., Tyler Fisk (required for personal/combined)"
+            },
+            {
+              "fieldLabel": "Company Name",
+              "fieldType": "text",
+              "requiredField": false,
+              "placeholder": "e.g., Hattie B's (required for company/combined)"
+            },
+            {
+              "fieldLabel": "Writing Samples",
+              "fieldType": "textarea",
+              "requiredField": true,
+              "placeholder": "Paste writing samples here (emails, transcripts, social posts). More samples = better analysis."
+            },
+            {
+              "fieldLabel": "Company Materials",
+              "fieldType": "textarea",
+              "requiredField": false,
+              "placeholder": "For company/combined: Paste brand guidelines, style guide, or marketing copy."
+            },
+            {
+              "fieldLabel": "Skip QC Validation",
+              "fieldType": "dropdown",
+              "requiredField": false,
+              "fieldOptions": {
+                "values": [
+                  {"option": "No (Recommended)"},
+                  {"option": "Yes (Save ~$0.03)"}
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "id": "trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.1,
+      "position": [240, 300],
+      "webhookId": "echo-brand-voice-trigger",
+      "notes": "Entry point for brand voice analysis.\n\nVoice Types:\n- personal: Analyze individual's voice\n- company: Analyze company brand voice\n- combined: Personal voice at company context"
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "claude-key",
+              "name": "claude_api_key",
+              "value": "YOUR_CLAUDE_API_KEY",
+              "type": "string"
+            },
+            {
+              "id": "analyzer-prompt",
+              "name": "analyzer_prompt",
+              "value": "See assets/prompt-library/agents/echo-analyzer.md for full prompt",
+              "type": "string"
+            },
+            {
+              "id": "formatter-prompt",
+              "name": "formatter_prompt",
+              "value": "See assets/prompt-library/agents/echo-formatter.md for full prompt",
+              "type": "string"
+            },
+            {
+              "id": "validator-prompt",
+              "name": "validator_prompt",
+              "value": "See assets/prompt-library/agents/echo-validator.md for full prompt",
+              "type": "string"
+            },
+            {
+              "id": "min-words",
+              "name": "min_word_count",
+              "value": 500,
+              "type": "number"
+            }
+          ]
+        }
+      },
+      "id": "config",
+      "name": "Configuration",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [460, 300],
+      "notes": "CONFIGURE HERE:\n\n1. Replace YOUR_CLAUDE_API_KEY\n2. Copy prompts from assets/prompt-library/agents/echo-*.md\n3. Adjust min_word_count if needed"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate input fields\nconst input = $('Manual Trigger').first().json;\nconst minWords = $('Configuration').first().json.min_word_count || 500;\nconst errors = [];\n\nconst voiceType = input['Voice Type'] || '';\nconst personName = input['Person Name'] || '';\nconst companyName = input['Company Name'] || '';\nconst writingSamples = input['Writing Samples'] || '';\nconst companyMaterials = input['Company Materials'] || '';\nconst skipQC = input['Skip QC Validation'] === 'Yes (Save ~$0.03)';\n\n// Check voice type\nif (!['personal', 'company', 'combined'].includes(voiceType)) {\n  errors.push({\n    field: 'Voice Type',\n    message: 'Must select personal, company, or combined'\n  });\n}\n\n// Check required names based on voice type\nif (voiceType === 'personal' && !personName.trim()) {\n  errors.push({\n    field: 'Person Name',\n    message: 'Person Name required for personal voice type'\n  });\n}\n\nif (voiceType === 'company' && !companyName.trim()) {\n  errors.push({\n    field: 'Company Name',\n    message: 'Company Name required for company voice type'\n  });\n}\n\nif (voiceType === 'combined') {\n  if (!personName.trim()) {\n    errors.push({\n      field: 'Person Name',\n      message: 'Person Name required for combined voice type'\n    });\n  }\n  if (!companyName.trim()) {\n    errors.push({\n      field: 'Company Name',\n      message: 'Company Name required for combined voice type'\n    });\n  }\n}\n\n// Check writing samples\nif (!writingSamples.trim()) {\n  errors.push({\n    field: 'Writing Samples',\n    message: 'Writing samples are required'\n  });\n} else {\n  const wordCount = writingSamples.split(/\\s+/).length;\n  if (wordCount < minWords) {\n    errors.push({\n      field: 'Writing Samples',\n      message: `Minimum ${minWords} words required. Found ${wordCount} words.`\n    });\n  }\n}\n\n// Check company materials for company/combined\nif (['company', 'combined'].includes(voiceType) && !companyMaterials.trim()) {\n  // Warning, not error\n  console.log('Warning: Company materials recommended for company/combined voice type');\n}\n\n// Return result\nif (errors.length > 0) {\n  return [{\n    json: {\n      validation_passed: false,\n      errors: errors,\n      message: 'Input validation failed'\n    }\n  }];\n}\n\n// Validation passed - normalize inputs\nreturn [{\n  json: {\n    validation_passed: true,\n    voice_type: voiceType,\n    student_name: personName.trim(),\n    company_name: companyName.trim(),\n    writing_samples: writingSamples.trim(),\n    company_materials: companyMaterials.trim(),\n    skip_qc: skipQC,\n    word_count: writingSamples.split(/\\s+/).length,\n    retry_count: 0\n  }\n}];"
+      },
+      "id": "validate-input",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300],
+      "notes": "Validates:\n- Voice type selection\n- Required names for each type\n- Minimum word count in samples\n- Company materials for company/combined"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "validation-check",
+              "leftValue": "={{ $json.validation_passed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "check-validation",
+      "name": "Validation OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 300],
+      "notes": "Routes based on validation:\n- TRUE: Continue to Option Router\n- FALSE: Return error"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "personal-check",
+                    "leftValue": "={{ $json.voice_type }}",
+                    "rightValue": "personal",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "personal"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "company-check",
+                    "leftValue": "={{ $json.voice_type }}",
+                    "rightValue": "company",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "company"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "combined-check",
+                    "leftValue": "={{ $json.voice_type }}",
+                    "rightValue": "combined",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "combined"
+            }
+          ]
+        }
+      },
+      "id": "option-router",
+      "name": "Option Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1120, 200],
+      "notes": "Routes to appropriate analysis path:\n- personal: Individual voice analysis\n- company: Brand voice analysis\n- combined: Hybrid analysis"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build personal voice analysis prompt\nconst input = $input.first().json;\nconst analyzerPrompt = $('Configuration').first().json.analyzer_prompt;\n\n// Personal-specific context\nconst context = `## Personal Voice Analysis Mode\n\nYou are analyzing writing samples to extract **${input.student_name}'s personal voice**.\n\n**Goal**: Create a voice profile that makes AI write exactly like ${input.student_name} - capturing their unique personality, quirks, and communication style.\n\n**Input Focus**:\n- Personal emails, messages, transcripts\n- Social media posts\n- Any authentic communication in their natural voice\n\n**Output Focus**:\n- Individual linguistic patterns\n- Personal vocabulary and phrases\n- Emotional expression style\n- Personality traits through language`;\n\nreturn [{\n  json: {\n    ...input,\n    analysis_context: context,\n    system_prompt: analyzerPrompt\n  }\n}];"
+      },
+      "id": "build-personal-prompt",
+      "name": "Build Personal Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 80],
+      "notes": "Builds personal voice analysis context"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build company voice analysis prompt\nconst input = $input.first().json;\nconst analyzerPrompt = $('Configuration').first().json.analyzer_prompt;\n\n// Company-specific context\nconst context = `## Company Voice Analysis Mode\n\nYou are analyzing materials to extract the **${input.company_name} brand voice**.\n\n**Goal**: Create a voice profile usable by any employee writing as this company - consistent, professional, and aligned with brand values.\n\n**Input Focus**:\n- Brand style guides\n- Marketing copy and website content\n- Approved customer communications\n- Social media guidelines\n\n**Output Focus**:\n- Company tone and personality\n- Brand-specific vocabulary\n- Communication guidelines\n- Consistency requirements across channels`;\n\nreturn [{\n  json: {\n    ...input,\n    analysis_context: context,\n    system_prompt: analyzerPrompt\n  }\n}];"
+      },
+      "id": "build-company-prompt",
+      "name": "Build Company Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 200],
+      "notes": "Builds company voice analysis context"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build combined voice analysis prompt\nconst input = $input.first().json;\nconst analyzerPrompt = $('Configuration').first().json.analyzer_prompt;\n\n// Combined-specific context\nconst context = `## Combined Voice Analysis Mode\n\nYou are analyzing samples to extract **${input.student_name}'s voice when representing ${input.company_name}**.\n\n**Goal**: Create a hybrid profile - ${input.student_name}'s authentic personality filtered through ${input.company_name}'s brand constraints.\n\n**Input Focus**:\n- ${input.student_name}'s personal writing samples\n- ${input.company_name}'s brand guidelines/materials\n- (Optional) Past communications as company representative\n\n**Output Focus**:\n- Personal patterns that complement company voice\n- Where personal style enhances brand communication\n- Conflict resolution between personal and company preferences\n- Contextual switching guidance (internal vs external)\n\n**Constraint Hierarchy**:\n1. Company constraints are HARD boundaries (never violate)\n2. Personal patterns applied WITHIN those boundaries\n3. When conflict exists: Company wins, but FLAG the conflict`;\n\nreturn [{\n  json: {\n    ...input,\n    analysis_context: context,\n    system_prompt: analyzerPrompt\n  }\n}];"
+      },
+      "id": "build-combined-prompt",
+      "name": "Build Combined Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 320],
+      "notes": "Builds combined voice analysis context with constraint hierarchy"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge paths back together\nconst items = $input.all();\nif (items.length === 0) {\n  throw new Error('No input received');\n}\nreturn items;"
+      },
+      "id": "merge-paths",
+      "name": "Merge Paths",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 200],
+      "notes": "Merges the three voice type paths back to single flow"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $('Configuration').first().json.claude_api_key }}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-20250514\",\n  \"max_tokens\": 8000,\n  \"temperature\": 0.6,\n  \"system\": {{ JSON.stringify($json.analysis_context + '\\n\\n' + $json.system_prompt) }},\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": {{ JSON.stringify('Analyze the following writing samples and produce a comprehensive voice profile in JSON format.\\n\\n---\\n\\nWRITING SAMPLES:\\n' + $json.writing_samples + ($json.company_materials ? '\\n\\n---\\n\\nCOMPANY MATERIALS:\\n' + $json.company_materials : '')) }}\n    }\n  ]\n}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "phase1-analysis",
+      "name": "Phase 1+2: Deep Analysis",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1780, 200],
+      "notes": "Phase 1+2: Deep linguistic analysis + voice extraction.\n\nModel: Claude Sonnet\nTemp: 0.6 (balance thoroughness with consistency)\nMax Tokens: 8000"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract analysis JSON from Claude response\nconst input = $('Merge Paths').first().json;\nconst httpResponse = $input.first().json;\nconst response = httpResponse.body || httpResponse;\n\n// Check for API errors\nif (response.error) {\n  return [{\n    json: {\n      ...input,\n      phase1_success: false,\n      phase1_error: response.error.message || 'Claude API error'\n    }\n  }];\n}\n\n// Extract text from Claude response\nconst content = response.content?.[0]?.text || '';\n\n// Try to parse JSON from response\nlet analysisJson = null;\ntry {\n  // Look for JSON in the response\n  const jsonMatch = content.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    analysisJson = JSON.parse(jsonMatch[0]);\n  }\n} catch (e) {\n  console.log('JSON parse error:', e.message);\n}\n\nreturn [{\n  json: {\n    ...input,\n    phase1_success: !!analysisJson,\n    phase1_raw: content,\n    analysis_json: analysisJson,\n    phase1_error: analysisJson ? null : 'Could not parse JSON from analysis'\n  }\n}];"
+      },
+      "id": "parse-analysis",
+      "name": "Parse Analysis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 200],
+      "notes": "Extracts and parses JSON analysis from Claude response"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $('Configuration').first().json.claude_api_key }}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-20250514\",\n  \"max_tokens\": 2000,\n  \"temperature\": 0.3,\n  \"system\": {{ JSON.stringify($('Configuration').first().json.formatter_prompt) }},\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": {{ JSON.stringify('Convert the following voice analysis JSON into an XML BrandVoice snippet. Maximum 1000 words. Output ONLY the XML, no introduction or explanation.\\n\\n' + JSON.stringify($json.analysis_json, null, 2)) }}\n    }\n  ]\n}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "phase3-formatter",
+      "name": "Phase 3: XML Generation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2220, 200],
+      "notes": "Phase 3: Generate XML brand voice snippet.\n\nModel: Claude Sonnet\nTemp: 0.3 (low for consistent formatting)\nMax Tokens: 2000"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract XML from formatter response\nconst input = $('Parse Analysis').first().json;\nconst httpResponse = $input.first().json;\nconst response = httpResponse.body || httpResponse;\n\n// Check for API errors\nif (response.error) {\n  return [{\n    json: {\n      ...input,\n      phase3_success: false,\n      phase3_error: response.error.message || 'Claude API error'\n    }\n  }];\n}\n\n// Extract text from Claude response\nconst content = response.content?.[0]?.text || '';\n\n// Look for XML in response\nconst xmlMatch = content.match(/<BrandVoice[\\s\\S]*<\\/BrandVoice>/);\nconst xmlOutput = xmlMatch ? xmlMatch[0] : content;\n\n// Count words in XML\nconst wordCount = xmlOutput.split(/\\s+/).length;\n\nreturn [{\n  json: {\n    ...input,\n    phase3_success: !!xmlMatch,\n    brand_voice_xml: xmlOutput,\n    xml_word_count: wordCount,\n    phase3_error: xmlMatch ? null : 'Could not extract XML from response'\n  }\n}];"
+      },
+      "id": "parse-xml",
+      "name": "Parse XML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2440, 200],
+      "notes": "Extracts XML brand voice snippet from formatter response"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "skip-qc-check",
+              "leftValue": "={{ $json.skip_qc }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "check-skip-qc",
+      "name": "Skip QC?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2660, 200],
+      "notes": "Check if user opted to skip QC validation.\n\nTRUE: Skip to output\nFALSE: Run Phase 4 validation"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $('Configuration').first().json.claude_api_key }}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-20250514\",\n  \"max_tokens\": 2000,\n  \"temperature\": 0,\n  \"system\": {{ JSON.stringify($('Configuration').first().json.validator_prompt) }},\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": {{ JSON.stringify('Validate the following brand voice profile. Output your validation report as JSON.\\n\\n' + $json.brand_voice_xml) }}\n    }\n  ]\n}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "phase4-validator",
+      "name": "Phase 4: QC Validation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2880, 300],
+      "notes": "Phase 4: Quality validation with emulation test.\n\nModel: Claude Sonnet\nTemp: 0.0 (CRITICAL - deterministic)\nMax Tokens: 2000"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse validation response and determine pass/fail\nconst input = $('Parse XML').first().json;\nconst httpResponse = $input.first().json;\nconst response = httpResponse.body || httpResponse;\n\n// Check for API errors\nif (response.error) {\n  return [{\n    json: {\n      ...input,\n      validation_result: 'ERROR',\n      validation_error: response.error.message\n    }\n  }];\n}\n\n// Extract validation JSON\nconst content = response.content?.[0]?.text || '';\nlet validationJson = null;\n\ntry {\n  const jsonMatch = content.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    validationJson = JSON.parse(jsonMatch[0]);\n  }\n} catch (e) {\n  console.log('Validation JSON parse error:', e.message);\n}\n\nconst result = validationJson?.validation_result || 'UNKNOWN';\nconst corrections = validationJson?.corrections_needed || [];\n\nreturn [{\n  json: {\n    ...input,\n    validation_result: result,\n    validation_details: validationJson,\n    corrections_needed: corrections,\n    qc_passed: result === 'PASS'\n  }\n}];"
+      },
+      "id": "parse-validation",
+      "name": "Parse Validation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3100, 300],
+      "notes": "Parses QC validation result and determines pass/fail"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "qc-passed",
+              "leftValue": "={{ $json.qc_passed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        }
+      },
+      "id": "check-qc-result",
+      "name": "QC Passed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [3320, 300],
+      "notes": "Routes based on QC result:\n- PASS: Continue to output\n- FAIL: Check retry count"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Check if we can retry\nconst input = $input.first().json;\nconst retryCount = input.retry_count || 0;\n\nif (retryCount >= 1) {\n  // Max retries reached - output with warning\n  return [{\n    json: {\n      ...input,\n      can_retry: false,\n      output_status: 'WARN_QC_FAILED',\n      message: 'QC validation failed after retry. Output may need manual review.'\n    }\n  }];\n}\n\n// Can retry - increment counter\nreturn [{\n  json: {\n    ...input,\n    retry_count: retryCount + 1,\n    can_retry: true\n  }\n}];"
+      },
+      "id": "check-retry",
+      "name": "Check Retry",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3540, 400],
+      "notes": "Checks if retry is available (max 1 retry).\n\nIf retry available, route back to Phase 3.\nIf max retries, continue with warning."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format final output\nconst input = $input.first().json;\n\n// Determine status\nlet status = 'SUCCESS';\nlet message = 'Brand voice profile generated successfully';\n\nif (input.output_status === 'WARN_QC_FAILED') {\n  status = 'WARN';\n  message = 'Profile generated but QC validation failed. Review recommended.';\n} else if (!input.phase3_success) {\n  status = 'ERROR';\n  message = 'Failed to generate XML output';\n} else if (!input.phase1_success) {\n  status = 'ERROR';\n  message = 'Failed to complete analysis';\n}\n\nreturn [{\n  json: {\n    status: status,\n    message: message,\n    voice_type: input.voice_type,\n    subject: input.student_name || input.company_name,\n    company: input.company_name || null,\n    brand_voice_xml: input.brand_voice_xml,\n    xml_word_count: input.xml_word_count,\n    qc_result: input.validation_result || 'SKIPPED',\n    qc_details: input.validation_details || null,\n    analysis_summary: input.analysis_json?.analysis_summary || null,\n    generated_at: new Date().toISOString(),\n    usage_instructions: {\n      ygm_integration: 'Inject <BrandVoice> block into YGM system prompt under <PersonaAndVoiceDeepDive> section',\n      golden_threads: 'Extract <golden_threads> for Content Finalizer technique',\n      next_step: 'Test voice by drafting sample content'\n    }\n  }\n}];"
+      },
+      "id": "format-output",
+      "name": "Format Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3760, 200],
+      "notes": "Formats final output with:\n- Brand voice XML\n- QC result\n- Usage instructions\n- Timestamps"
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "error-status",
+              "name": "status",
+              "value": "ERROR",
+              "type": "string"
+            },
+            {
+              "id": "error-message",
+              "name": "message",
+              "value": "={{ $('Validate Input').first().json.message }}",
+              "type": "string"
+            },
+            {
+              "id": "errors",
+              "name": "errors",
+              "value": "={{ $('Validate Input').first().json.errors }}",
+              "type": "array"
+            }
+          ]
+        }
+      },
+      "id": "error-output",
+      "name": "Error Output",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1120, 420],
+      "notes": "Returns validation errors to user"
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [{"node": "Configuration", "type": "main", "index": 0}]
+      ]
+    },
+    "Configuration": {
+      "main": [
+        [{"node": "Validate Input", "type": "main", "index": 0}]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [{"node": "Validation OK?", "type": "main", "index": 0}]
+      ]
+    },
+    "Validation OK?": {
+      "main": [
+        [{"node": "Option Router", "type": "main", "index": 0}],
+        [{"node": "Error Output", "type": "main", "index": 0}]
+      ]
+    },
+    "Option Router": {
+      "main": [
+        [{"node": "Build Personal Prompt", "type": "main", "index": 0}],
+        [{"node": "Build Company Prompt", "type": "main", "index": 0}],
+        [{"node": "Build Combined Prompt", "type": "main", "index": 0}]
+      ]
+    },
+    "Build Personal Prompt": {
+      "main": [
+        [{"node": "Merge Paths", "type": "main", "index": 0}]
+      ]
+    },
+    "Build Company Prompt": {
+      "main": [
+        [{"node": "Merge Paths", "type": "main", "index": 0}]
+      ]
+    },
+    "Build Combined Prompt": {
+      "main": [
+        [{"node": "Merge Paths", "type": "main", "index": 0}]
+      ]
+    },
+    "Merge Paths": {
+      "main": [
+        [{"node": "Phase 1+2: Deep Analysis", "type": "main", "index": 0}]
+      ]
+    },
+    "Phase 1+2: Deep Analysis": {
+      "main": [
+        [{"node": "Parse Analysis", "type": "main", "index": 0}]
+      ]
+    },
+    "Parse Analysis": {
+      "main": [
+        [{"node": "Phase 3: XML Generation", "type": "main", "index": 0}]
+      ]
+    },
+    "Phase 3: XML Generation": {
+      "main": [
+        [{"node": "Parse XML", "type": "main", "index": 0}]
+      ]
+    },
+    "Parse XML": {
+      "main": [
+        [{"node": "Skip QC?", "type": "main", "index": 0}]
+      ]
+    },
+    "Skip QC?": {
+      "main": [
+        [{"node": "Format Output", "type": "main", "index": 0}],
+        [{"node": "Phase 4: QC Validation", "type": "main", "index": 0}]
+      ]
+    },
+    "Phase 4: QC Validation": {
+      "main": [
+        [{"node": "Parse Validation", "type": "main", "index": 0}]
+      ]
+    },
+    "Parse Validation": {
+      "main": [
+        [{"node": "QC Passed?", "type": "main", "index": 0}]
+      ]
+    },
+    "QC Passed?": {
+      "main": [
+        [{"node": "Format Output", "type": "main", "index": 0}],
+        [{"node": "Check Retry", "type": "main", "index": 0}]
+      ]
+    },
+    "Check Retry": {
+      "main": [
+        [{"node": "Format Output", "type": "main", "index": 0}]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateId": "echo-brand-voice-v1",
+    "templateCredsSetupCompleted": false,
+    "instanceId": "YOUR_INSTANCE_ID"
+  },
+  "tags": [
+    {"name": "brand-voice"},
+    {"name": "echo"},
+    {"name": "session-1"},
+    {"name": "task-017"}
+  ],
+  "pinData": {},
+  "staticData": null,
+  "versionId": "1"
+}

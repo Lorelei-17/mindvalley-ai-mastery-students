@@ -1,0 +1,94 @@
+# Company Policies
+
+## Shipping Policy
+
+### Domestic Shipping
+- Standard Shipping: 3-5 business days ($5.99)
+- Express Shipping: 2 business days ($12.99)
+- Overnight Shipping: Next business day ($24.99)
+- Free shipping on orders over $50
+
+### International Shipping
+- Currently available to Canada only
+- Delivery: 7-10 business days
+- Customs fees are the responsibility of the customer
+
+### Shipping Restrictions
+- We do not ship to PO boxes
+- We do not ship to military APO/FPO addresses
+- Orders placed after 2pm EST ship the next business day
+
+## Return & Refund Policy
+
+### Return Window
+- 30 days from date of delivery
+- Items must be in original, unused condition
+- Original packaging required
+
+### Refund Process
+1. Contact customer service for RMA number
+2. Ship item back within 7 days of receiving RMA
+3. Refund processed within 5-7 business days after we receive the item
+4. Refund issued to original payment method
+
+### Non-Returnable Items
+- Opened food or personal care items
+- Custom or personalized products
+- Sale items marked "Final Sale"
+- Digital products or downloads
+
+### Return Shipping Costs
+- Defective items: We pay return shipping
+- Change of mind: Customer pays return shipping
+- Wrong item sent: We pay return shipping
+
+## Privacy Policy
+
+### Information We Collect
+- Name, email, shipping address
+- Payment information (encrypted)
+- Order history
+- Website usage data (cookies)
+
+### How We Use Your Information
+- Process and fulfill orders
+- Send order confirmations and updates
+- Respond to customer service requests
+- Improve our website and services
+- Send marketing emails (opt-in only)
+
+### Information Sharing
+- We do NOT sell your personal information
+- We share data with shipping carriers for delivery
+- We use secure payment processors (Stripe, PayPal)
+- We may share data if required by law
+
+### Your Rights
+- Request a copy of your data
+- Request deletion of your data
+- Opt out of marketing emails anytime
+- Update your information in your account settings
+
+## Customer Service Policy
+
+### Response Times
+- Email inquiries: Within 24 hours (business days)
+- Phone calls: Answered within 5 minutes during business hours
+- Live chat: Immediate response during business hours
+
+### Business Hours
+- Monday-Friday: 9am-5pm EST
+- Saturday: 10am-3pm EST
+- Sunday: Closed
+- Holiday hours may vary
+
+### Contact Methods
+- Email: support@example.com
+- Phone: 1-800-555-0123
+- Live Chat: Available on website during business hours
+- Social Media: We monitor DMs on Instagram and Facebook
+
+### Satisfaction Guarantee
+- If you're not satisfied, we'll make it right
+- Options include: replacement, refund, or store credit
+- We stand behind our products 100%

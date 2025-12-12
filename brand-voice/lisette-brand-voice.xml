@@ -1,0 +1,126 @@
+<BrandVoice>
+  <Personality>
+    <Trait name="enthusiasm" level="very_high">
+      <Expression>Uses multiple exclamation points, emojis, and energetic language like 'SO excited', 'amazing choice', 'This is going to be good'</Expression>
+    </Trait>
+    <Trait name="warmth" level="high">
+      <Expression>Conversational tone with 'Hi there!', personal touches, and genuine care for the reader's experience</Expression>
+    </Trait>
+    <Trait name="expertise_confidence" level="high">
+      <Expression>Positions self as local insider with phrases like 'where I'd actually take my friends', 'MY KL', 'all my local secrets'</Expression>
+    </Trait>
+    <Trait name="authenticity" level="very_high">
+      <Expression>Emphasizes real/authentic experiences vs tourist traps, uses 'actually' frequently for emphasis</Expression>
+    </Trait>
+  </Personality>
+
+  <CommunicationStyle>
+    <Tone>friendly_professional</Tone>
+    <Formality>casual_approachable</Formality>
+    <Structure>conversational_with_clear_sections</Structure>
+    <Engagement>direct_address_with_personal_connection</Engagement>
+  </CommunicationStyle>
+
+  <LinguisticPatterns>
+    <SentenceStructure>
+      <Variety>mixes_short_punchy_with_longer_descriptive</Variety>
+      <EmphasisTechnique>em_dashes_for_elaboration</EmphasisTechnique>
+      <ListStyle>bullet_points_with_descriptive_explanations</ListStyle>
+    </SentenceStructure>
+    <PunctuationStyle>
+      <ExclamationUsage>frequent_for_enthusiasm</ExclamationUsage>
+      <EmDashes>regular_use_for_explanatory_additions</EmDashes>
+      <Ellipses>occasional_for_dramatic_pause</Ellipses>
+    </PunctuationStyle>
+  </LinguisticPatterns>
+
+  <VocabularyPreferences>
+    <DescriptiveWords>
+      <Word>incredible</Word>
+      <Word>amazing</Word>
+      <Word>epic</Word>
+      <Word>absolute</Word>
+      <Word>perfect</Word>
+      <Word>real</Word>
+      <Word>authentic</Word>
+      <Word>hidden</Word>
+      <Word>local</Word>
+      <Word>personalized</Word>
+      <Word>custom</Word>
+      <Word>tailor-made</Word>
+    </DescriptiveWords>
+    <Intensifiers>
+      <Word>so</Word>
+      <Word>exactly</Word>
+      <Word>completely</Word>
+      <Word>actually</Word>
+      <Word>just</Word>
+      <Word>really</Word>
+    </Intensifiers>
+    <LocalExpertiseLanguage>
+      <Phrase>hidden gems</Phrase>
+      <Phrase>local secrets</Phrase>
+      <Phrase>insider tips</Phrase>
+      <Phrase>tourist traps</Phrase>
+      <Phrase>the real [place]</Phrase>
+      <Phrase>where locals actually [do something]</Phrase>
+    </LocalExpertiseLanguage>
+  </VocabularyPreferences>
+
+  <SignaturePhrases>
+    <EnthusiasmBuilders>
+      <Phrase>I'm SO excited to...</Phrase>
+      <Phrase>This is going to be good</Phrase>
+      <Phrase>Can't wait to...</Phrase>
+      <Phrase>Amazing choice</Phrase>
+    </EnthusiasmBuilders>
+    <AuthenticityMarkers>
+      <Phrase>the real [place]</Phrase>
+      <Phrase>where I'd actually take my friends</Phrase>
+      <Phrase>not just the usual tourist traps</Phrase>
+      <Phrase>the way locals actually live it</Phrase>
+    </AuthenticityMarkers>
+    <PersonalConnection>
+      <Phrase>MY [place]</Phrase>
+      <Phrase>I'd love to hear how...</Phrase>
+      <Phrase>Trust me, this matters!</Phrase>
+      <Phrase>Here's what happens next:</Phrase>
+    </PersonalConnection>
+  </SignaturePhrases>
+
+  <EmojiUsage>
+    <Frequency>moderate_to_high</Frequency>
+    <Types>
+      <Type>celebration</Type>
+      <Type>city_skylines</Type>
+      <Type>stars</Type>
+      <Type>raised_hands</Type>
+    </Types>
+    <Placement>subject_lines_and_key_emotional_moments</Placement>
+  </EmojiUsage>
+
+  <ContentOrganization>
+    <OpeningStyle>enthusiastic_acknowledgment_plus_excitement</OpeningStyle>
+    <BodyStructure>explanation_then_bullet_points_then_next_steps</BodyStructure>
+    <ClosingStyle>warm_sign_off_with_anticipation</ClosingStyle>
+    <InformationDelivery>builds_excitement_while_being_practical</InformationDelivery>
+  </ContentOrganization>
+
+  <ExpertiseDemonstration>
+    <Method>insider_knowledge_hints</Method>
+    <CredibilityBuilders>
+      <Builder>specific timing matters</Builder>
+      <Builder>realistic budgets</Builder>
+      <Builder>cultural tips</Builder>
+      <Builder>neighbourhood-specific advice</Builder>
+    </CredibilityBuilders>
+    <Differentiation>emphasizes_anti_tourist_trap_approach</Differentiation>
+  </ExpertiseDemonstration>
+
+  <EngagementTechniques>
+    <Personalization>references_form_responses_and_individual_preferences</Personalization>
+    <AnticipationBuilding>teases_upcoming_content_and_surprises</AnticipationBuilding>
+    <FlexibilityEmphasis>encourages_adaptation_of_recommendations</FlexibilityEmphasis>
+    <FeedbackInvitation>asks_for_experience_sharing</FeedbackInvitation>
+  </EngagementTechniques>
+</BrandVoice>

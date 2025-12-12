@@ -1,0 +1,213 @@
+{
+  "name": "Main Agent Chain - HattieB",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "8c2bef99-8bc2-41f7-9c9f-3d5e1b7a2f4c",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "You are CinnaMon, a sentiment analysis expert. Analyze the provided text and return: sentiment (positive/negative/neutral), confidence (0-1), and brief reasoning.",
+        "options": {}
+      },
+      "id": "a1c4d8e2-7f3b-4a9e-8b5c-2e9d1c6f4b3a",
+      "name": "CinnaMon - Sentiment",
+      "type": "n8n-nodes-langchain.agent",
+      "typeVersion": 1,
+      "position": [450, 200]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "You are Hatch, an expert domain knowledge retriever. Based on the sentiment analysis and context provided, retrieve relevant knowledge base entries and expertise to inform the response.",
+        "options": {}
+      },
+      "id": "b2d5e9f3-8g4c-5b0f-9c6d-3f0e2d7g5c4b",
+      "name": "Hatch - Expert",
+      "type": "n8n-nodes-langchain.agent",
+      "typeVersion": 1,
+      "position": [650, 200]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "You are YGM, a master drafter. Using the sentiment analysis and expert knowledge provided, draft a comprehensive response that addresses the user's needs with clarity and empathy.",
+        "options": {}
+      },
+      "id": "c3e6fa04-9h5d-6c1g-0d7e-4g1f3e8h6d5c",
+      "name": "YGM - Draft",
+      "type": "n8n-nodes-langchain.agent",
+      "typeVersion": 1,
+      "position": [850, 200]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "You are QA, a quality assurance agent. Evaluate the drafted response for: clarity, accuracy, tone appropriateness, and completeness. Return a QA score (0-1) and recommendations for improvement.",
+        "options": {}
+      },
+      "id": "d4f7gb15-0i6e-7d2h-1e8f-5h2g4f9i7e6d",
+      "name": "QA - Evaluate",
+      "type": "n8n-nodes-langchain.agent",
+      "typeVersion": 1,
+      "position": [1050, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "comparator": ">=",
+              "value1": "={{ $node[\"QA - Evaluate\"].json.qaScore }}",
+              "value2": 0.8
+            }
+          ]
+        }
+      },
+      "id": "e5g8hc26-1j7f-8e3i-2f9g-6i3h5g0j8f7e",
+      "name": "QA Pass Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1250, 200]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "finalResponse",
+              "value": "={{ $node[\"YGM - Draft\"].json.response }}"
+            },
+            {
+              "name": "sentiment",
+              "value": "={{ $node[\"CinnaMon - Sentiment\"].json.sentiment }}"
+            },
+            {
+              "name": "qaScore",
+              "value": "={{ $node[\"QA - Evaluate\"].json.qaScore }}"
+            },
+            {
+              "name": "status",
+              "value": "completed"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f6h9id37-2k8g-9f4j-3g0h-7j4i6h1k9g8f",
+      "name": "Set Output",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [1450, 200]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "CinnaMon - Sentiment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CinnaMon - Sentiment": {
+      "main": [
+        [
+          {
+            "node": "Hatch - Expert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hatch - Expert": {
+      "main": [
+        [
+          {
+            "node": "YGM - Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "YGM - Draft": {
+      "main": [
+        [
+          {
+            "node": "QA - Evaluate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "QA - Evaluate": {
+      "main": [
+        [
+          {
+            "node": "QA Pass Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "QA Pass Check": {
+      "main": [
+        [
+          {
+            "node": "Set Output",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "YGM - Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "nodeTypes": {
+    "n8n-nodes-base.manualTrigger": {
+      "group": ["trigger"],
+      "name": "Manual Trigger",
+      "description": "Trigger the workflow manually"
+    },
+    "n8n-nodes-langchain.agent": {
+      "group": ["ai"],
+      "name": "AI Agent",
+      "description": "LangChain AI Agent"
+    },
+    "n8n-nodes-base.if": {
+      "group": ["logic"],
+      "name": "IF",
+      "description": "Conditionally execute nodes"
+    },
+    "n8n-nodes-base.set": {
+      "group": ["transform"],
+      "name": "Set",
+      "description": "Set data in workflow"
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  }
+}

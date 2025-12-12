@@ -1,0 +1,145 @@
+{
+  "name": "Echo Brand Voice Analysis (Processor)",
+  "description": "Background processor for Echo brand voice analysis. Called by Echo Trigger workflow. Runs 14 analysis steps sequentially, then emails results.",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "execute-workflow-trigger",
+      "name": "Called by Trigger Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -1328,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "voice-type",
+              "name": "Voice Type",
+              "value": "={{ $json.voice_type || 'personal' }}",
+              "type": "string"
+            },
+            {
+              "id": "person-name",
+              "name": "Person Name",
+              "value": "={{ $json.person_name || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "company-name",
+              "name": "Company Name",
+              "value": "={{ $json.company_name || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "writing-samples",
+              "name": "Writing Samples",
+              "value": "={{ $json.writing_samples || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "company-materials",
+              "name": "Company Materials",
+              "value": "={{ $json.company_materials || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "skip-qc",
+              "name": "Skip QC Validation",
+              "value": "={{ $json.skip_qc ? 'Yes (Save ~$0.03)' : 'No (Recommended)' }}",
+              "type": "string"
+            },
+            {
+              "id": "student-email",
+              "name": "student_email",
+              "value": "={{ $json.student_email || 'student@example.com' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "normalize-external-input",
+      "name": "Normalize External Input",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1104,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "claude-key",
+              "name": "claude_api_key",
+              "value": "YOUR_ANTHROPIC_API_KEY_HERE",
+              "type": "string"
+            },
+            {
+              "id": "min-words",
+              "name": "min_word_count",
+              "value": 500,
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b0bd702a-2bb5-453f-b756-971f076af931",
+      "name": "Configuration",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -880,
+        1056
+      ],
+      "notes": "CONFIGURE HERE: Replace YOUR_ANTHROPIC_API_KEY_HERE with your actual Anthropic API key"
+    }
+  ],
+  "connections": {
+    "Called by Trigger Workflow": {
+      "main": [
+        [
+          {
+            "node": "Normalize External Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize External Input": {
+      "main": [
+        [
+          {
+            "node": "Configuration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "meta": {
+    "templateId": "echo-processor-v2",
+    "description": "Sequential 14-step voice analysis with email delivery. Requires: Anthropic API key, Gmail OAuth2 credential.",
+    "setupInstructions": [
+      "1. Replace YOUR_ANTHROPIC_API_KEY_HERE in Configuration node with your Anthropic API key",
+      "2. Connect Gmail OAuth2 credential to Send Results Email node",
+      "3. Import Echo Trigger workflow and link the two workflows"
+    ]
+  }
+}

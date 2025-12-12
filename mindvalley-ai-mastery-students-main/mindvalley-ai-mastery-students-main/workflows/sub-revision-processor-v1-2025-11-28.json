@@ -1,0 +1,367 @@
+{
+  "name": "SUB: Revision Processor - Hattie B's HITL",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "trigger-workflow",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 300],
+      "notes": "Triggered by W2 Approval Handler when REVISE intent detected"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "set-execution-id",
+              "name": "execution_id",
+              "value": "={{ $json.execution_id }}",
+              "type": "string"
+            },
+            {
+              "id": "set-revision-count",
+              "name": "revision_count",
+              "value": "={{ $json.revision_count }}",
+              "type": "number"
+            },
+            {
+              "id": "set-human-feedback",
+              "name": "human_feedback",
+              "value": "={{ $json.human_feedback }}",
+              "type": "string"
+            },
+            {
+              "id": "set-original-email",
+              "name": "original_email",
+              "value": "={{ $json.original_email }}",
+              "type": "object"
+            },
+            {
+              "id": "set-previous-draft",
+              "name": "previous_draft",
+              "value": "={{ $json.previous_draft }}",
+              "type": "string"
+            },
+            {
+              "id": "set-cinnamon",
+              "name": "cinnamon_analysis",
+              "value": "={{ typeof $json.cinnamon_analysis === 'string' ? JSON.parse($json.cinnamon_analysis) : $json.cinnamon_analysis }}",
+              "type": "object"
+            },
+            {
+              "id": "set-hatch",
+              "name": "hatch_analysis",
+              "value": "={{ $json.hatch_analysis }}",
+              "type": "string"
+            },
+            {
+              "id": "set-temporal-now",
+              "name": "current_datetime",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            },
+            {
+              "id": "set-temporal-day",
+              "name": "day_of_week",
+              "value": "={{ $now.format('EEEE') }}",
+              "type": "string"
+            },
+            {
+              "id": "set-temporal-holiday",
+              "name": "is_holiday_season",
+              "value": "={{ ['11', '12', '01'].includes($now.format('MM')) }}",
+              "type": "boolean"
+            }
+          ]
+        }
+      },
+      "id": "prepare-context",
+      "name": "Prepare Revision Context",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [220, 300],
+      "notes": "Extracts and normalizes all inputs for the revision chain"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "## REVISION REQUEST\n\nYou are receiving a REVISION request for an email draft.\n\n### Human Feedback\nThe reviewer said:\n\"{{ $json.human_feedback }}\"\n\n### Previous Draft (that needs revision)\n{{ $json.previous_draft }}\n\n### Original Customer Email\nSubject: {{ $json.original_email.subject }}\nFrom: {{ $json.original_email.sender }}\n\n{{ $json.original_email.body }}\n\n### CinnaMon's Original Sentiment Analysis\n{{ JSON.stringify($json.cinnamon_analysis, null, 2) }}\n\n### Your Previous Analysis\n{{ $json.hatch_analysis }}\n\n---\n\n## YOUR TASK\n\nRe-analyze this situation considering the human reviewer's feedback. The human is the final authority.\n\n1. What did the human specifically want changed?\n2. How does this affect your recommended approach?\n3. What information should Sugar emphasize or de-emphasize?\n\nProvide an UPDATED analysis for Sugar (the email drafter) that incorporates the human feedback.\n\nIMPORTANT: Your goal is to help Sugar produce a draft that satisfies the human reviewer.",
+        "hasOutputParser": false,
+        "options": {
+          "systemMessage": "<s>\n<version_info>\nName: Hatch (Expert Agent) - REVISION MODE\nVersion: 1.0\nDate: 2025-11-28\nBusiness: Hattie B's Hot Chicken\nPurpose: Re-analyze customer inquiry incorporating human feedback for revision\n</version_info>\n\n<role>\nYou are Hatch, the Expert Agent for Hattie B's Hot Chicken. You are operating in\nREVISION MODE - the human reviewer requested changes to Sugar's draft.\n\nYour job is to:\n1. Understand what the human reviewer wants changed\n2. Re-analyze the situation with their feedback in mind\n3. Provide updated guidance to Sugar for the revision\n\nThe human reviewer is the FINAL AUTHORITY. If they say \"make it friendlier\" or\n\"too formal\" or \"address X differently\" - that's what needs to happen.\n</role>\n\n<temporal_context>\n<current_datetime>{{ $json.current_datetime }}</current_datetime>\n<day_of_week>{{ $json.day_of_week }}</day_of_week>\n<is_holiday_season>{{ $json.is_holiday_season }}</is_holiday_season>\n</temporal_context>\n\n<output_format>\n## Revision Analysis\n\n### Human Feedback Interpretation\n- What they want changed: [specific interpretation]\n- Tone adjustment needed: [more/less formal/warm/technical/etc.]\n- Content adjustment needed: [add/remove/emphasize what]\n\n### Updated Approach for Sugar\n- Primary change: [What should be different in v2]\n- Tone calibration: [How to adjust sliders]\n- Content focus: [What to emphasize now]\n- What to keep: [Good elements from v1 to preserve]\n\n### Draft Guidance for Sugar v2\n[Specific instructions for the revised draft]\n</output_format>\n\n<criteria>\n1. RESPECT HUMAN AUTHORITY: Their feedback overrides your previous analysis\n2. BE SPECIFIC: Translate vague feedback into actionable guidance\n3. PRESERVE GOOD: Identify what worked in v1 to keep\n4. FOCUS ON CHANGES: Be clear about what needs to be different\n</criteria>\n</s>"
+        }
+      },
+      "id": "hatch-revision",
+      "name": "Hatch (Revision Analysis)",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [440, 300],
+      "notes": "Re-analyzes with human feedback incorporated"
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-5-20250514",
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "hatch-model",
+      "name": "Hatch Model (Claude Sonnet)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.2,
+      "position": [440, 520],
+      "credentials": {
+        "anthropicApi": {
+          "id": "YOUR_ANTHROPIC_CREDENTIAL_ID",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "## EMAIL REVISION REQUEST\n\nYou are revising an email draft based on human feedback.\n\n### Revision Number: {{ $('Prepare Revision Context').first().json.revision_count }}\n\n### Human Feedback\nThe reviewer said:\n\"{{ $('Prepare Revision Context').first().json.human_feedback }}\"\n\n### Previous Draft (v{{ $('Prepare Revision Context').first().json.revision_count - 1 }})\n{{ $('Prepare Revision Context').first().json.previous_draft }}\n\n### Hatch's Updated Analysis\n{{ $json.output }}\n\n### Original Customer Message\nSubject: {{ $('Prepare Revision Context').first().json.original_email.subject }}\nFrom: {{ $('Prepare Revision Context').first().json.original_email.sender }}\n\n{{ $('Prepare Revision Context').first().json.original_email.body }}\n\n### CinnaMon's Sentiment Analysis\n{{ JSON.stringify($('Prepare Revision Context').first().json.cinnamon_analysis, null, 2) }}\n\n---\n\nProduce a REVISED email draft that addresses the human reviewer's feedback while maintaining Hattie B's brand voice.\n\nThis is v{{ $('Prepare Revision Context').first().json.revision_count }} - incorporate all feedback and produce a draft ready for approval.",
+        "hasOutputParser": false,
+        "options": {
+          "systemMessage": "<s>\n<version_info>\nName: Sugar (YGM Email Drafter) - REVISION MODE\nVersion: 1.0\nDate: 2025-11-28\nBusiness: Hattie B's Hot Chicken\nPurpose: Revise email draft based on human feedback\nTemperature: 0.7\n</version_info>\n\n<role>\nYou are Sugar, the Email Drafting Agent for Hattie B's Hot Chicken, operating in\nREVISION MODE. The human reviewer requested changes to your previous draft.\n\nYour mission:\n1. Carefully read what the human wants changed\n2. Apply Hatch's updated analysis\n3. Produce a revised draft that satisfies the reviewer\n\nThe human reviewer is the BOSS. Their feedback is law.\n</role>\n\n<hattieb_brand_voice>\nEssence: \"Non-fussy, fun, authentic Nashville hospitality\"\n\nApproved phrases (use naturally):\n- \"Y'all\"\n- \"We'd love to help\"\n- \"Our pleasure\"\n- \"Absolutely!\"\n- \"Come see us\"\n- \"Let me make this right\"\n- \"Y'all come back now!\"\n\nProhibited phrases (NEVER use):\n- \"Per your inquiry\"\n- \"Please be advised\"\n- \"We regret to inform you\"\n- \"At your earliest convenience\"\n- \"Kindly\"\n- \"Dear valued customer\"\n- \"As I already explained\"\n- \"That's just our policy\"\n</hattieb_brand_voice>\n\n<temporal_context>\n<current_datetime>{{ $('Prepare Revision Context').first().json.current_datetime }}</current_datetime>\n<day_of_week>{{ $('Prepare Revision Context').first().json.day_of_week }}</day_of_week>\n<is_holiday_season>{{ $('Prepare Revision Context').first().json.is_holiday_season }}</is_holiday_season>\n</temporal_context>\n\n<revision_process>\n1. UNDERSTAND: What exactly did the human want changed?\n2. IDENTIFY: What worked in v1 that should be kept?\n3. ADJUST: Apply the specific changes requested\n4. VERIFY: Does the new draft address the feedback?\n</revision_process>\n\n<output_format>\n<think>\n## Human Feedback Analysis\n- What they want changed: [interpretation]\n- What worked before: [elements to keep]\n- Key adjustments: [what I'll do differently]\n</think>\n\n<scratchpad>\n## Revision Plan\n- Tone adjustment: [how I'm shifting]\n- Content changes: [what's different]\n- Structure changes: [if any]\n</scratchpad>\n\n<answer>\n<email_draft>\n<subject>[Revised subject line if needed]</subject>\n<body>\n[Full revised email body]\n</body>\n<changes_made>\n- [List of specific changes from v1]\n</changes_made>\n<version>v{{ $('Prepare Revision Context').first().json.revision_count }}</version>\n</email_draft>\n</answer>\n</output_format>\n\n<constraints>\nNEVER:\n- Ignore the human's feedback\n- Use prohibited phrases\n- Make up information not in context\n- Lose the Hattie B's voice while revising\n\nALWAYS:\n- Address the SPECIFIC feedback given\n- Maintain brand authenticity\n- End with clear next step\n- Note what changed from previous version\n</constraints>\n</s>"
+        }
+      },
+      "id": "sugar-revision",
+      "name": "Sugar (Revision Draft)",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [660, 300],
+      "notes": "Produces revised email based on human feedback"
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-5-20250514",
+        "options": {
+          "temperature": 0.7
+        }
+      },
+      "id": "sugar-model",
+      "name": "Sugar Model (Claude Sonnet)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.2,
+      "position": [660, 520],
+      "credentials": {
+        "anthropicApi": {
+          "id": "YOUR_ANTHROPIC_CREDENTIAL_ID",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Sugar's output to extract the email draft\nconst sugarOutput = $input.first().json.output;\n\n// Extract subject\nlet subject = '';\nconst subjectMatch = sugarOutput.match(/<subject>([\\s\\S]*?)<\\/subject>/);\nif (subjectMatch) {\n  subject = subjectMatch[1].trim();\n}\n\n// Extract body\nlet body = '';\nconst bodyMatch = sugarOutput.match(/<body>([\\s\\S]*?)<\\/body>/);\nif (bodyMatch) {\n  body = bodyMatch[1].trim();\n}\n\n// If XML parsing failed, try to extract from plain text\nif (!subject && !body) {\n  // Fallback: assume the output is mostly the email\n  const lines = sugarOutput.split('\\n');\n  for (let i = 0; i < lines.length; i++) {\n    if (lines[i].toLowerCase().includes('subject:')) {\n      subject = lines[i].replace(/subject:/i, '').trim();\n    }\n  }\n  // Body is everything after the subject line until signature\n  const bodyStart = sugarOutput.indexOf('\\n', sugarOutput.toLowerCase().indexOf('subject:'));\n  if (bodyStart > 0) {\n    body = sugarOutput.substring(bodyStart).trim();\n  } else {\n    body = sugarOutput;\n  }\n}\n\nreturn {\n  draft: {\n    subject: subject || 'Re: Your message',\n    body: body || sugarOutput\n  },\n  raw_output: sugarOutput,\n  revision_count: $('Prepare Revision Context').first().json.revision_count,\n  execution_id: $('Prepare Revision Context').first().json.execution_id\n};"
+      },
+      "id": "parse-sugar-output",
+      "name": "Parse Sugar Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 300],
+      "notes": "Extracts subject and body from Sugar's structured output"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "## EMAIL QA EVALUATION\n\nEvaluate this REVISED email draft (v{{ $json.revision_count }}).\n\n### Email Draft to Evaluate\n\n**Subject:** {{ $json.draft.subject }}\n\n**Body:**\n{{ $json.draft.body }}\n\n---\n\n### Context\n\n**Original Customer Message:**\nSubject: {{ $('Prepare Revision Context').first().json.original_email.subject }}\nFrom: {{ $('Prepare Revision Context').first().json.original_email.sender }}\n{{ $('Prepare Revision Context').first().json.original_email.body }}\n\n**CinnaMon's Sentiment:**\n{{ JSON.stringify($('Prepare Revision Context').first().json.cinnamon_analysis, null, 2) }}\n\n**Human Feedback (that prompted this revision):**\n\"{{ $('Prepare Revision Context').first().json.human_feedback }}\"\n\n---\n\nEvaluate whether this revised draft:\n1. Addresses the human's specific feedback\n2. Maintains Hattie B's brand voice\n3. Is safe, accurate, and helpful to the customer\n\nProduce your evaluation in the structured JSON format.",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "<s>\n<version_info>\nName: Bishop (QA Evaluator)\nVersion: 1.0\nDate: 2025-11-28\nBusiness: Hattie B's Hot Chicken\nPurpose: Evaluate revised email drafts for quality and compliance\nTemperature: 0.0 (CRITICAL - must be deterministic)\n</version_info>\n\n<role>\nYou are Bishop, the Quality Assurance Agent for Hattie B's Hot Chicken.\n\nYou evaluate email drafts with the precision of a compiler. Your judgment\ndetermines whether an email meets the Hattie B's standard.\n\nFor REVISIONS, pay special attention to:\n- Did Sugar address the human reviewer's specific feedback?\n- Is the brand voice maintained?\n- Are there any safety or accuracy issues?\n</role>\n\n<evaluation_rubrics>\n<rubric name=\"SafetyCompliance\" weight=\"25\">\n5: No problematic promises, proper disclaimers\n4: Safe with minor improvements possible\n3: Acceptable but needs attention\n2: Some concerning claims\n1: FAIL - unsafe promises about allergens/safety\n</rubric>\n\n<rubric name=\"BrandVoiceCompliance\" weight=\"25\">\n5: Authentically Hattie B's throughout\n4: On-brand with minor opportunities\n3: Generally on-brand but some generic sections\n2: Sections sound corporate/generic\n1: FAIL - doesn't sound like Hattie B's\n</rubric>\n\n<rubric name=\"FactualAccuracy\" weight=\"20\">\n5: All claims verified, no fabrication\n4: Accurate with minor precision opportunities\n3: Mostly accurate, some unverified\n2: Contains unverified claims\n1: FAIL - fabricated or contradicted info\n</rubric>\n\n<rubric name=\"CustomerImpactCompliance\" weight=\"15\">\n5: Clearly addresses customer need\n4: Addresses core issue\n3: Partially addresses with questions remaining\n2: Unclear resolution\n1: FAIL - doesn't address customer need\n</rubric>\n\n<rubric name=\"ToneAppropriatenessCompliance\" weight=\"15\">\n5: Tone perfectly calibrated to emotion\n4: Appropriate tone\n3: Acceptable but not optimized\n2: Tone mismatch\n1: FAIL - wrong tone for situation\n</rubric>\n</evaluation_rubrics>\n\n<output_format>\nReturn a JSON object with this exact structure:\n\n{\n  \"overall_status\": \"PASS\" | \"FAIL\",\n  \"overall_score\": [0-100 number],\n  \"rubric_scores\": {\n    \"SafetyCompliance\": [1-5],\n    \"BrandVoiceCompliance\": [1-5],\n    \"FactualAccuracy\": [1-5],\n    \"CustomerImpactCompliance\": [1-5],\n    \"ToneAppropriatenessCompliance\": [1-5]\n  },\n  \"findings\": [\n    {\n      \"rubric\": \"[rubric name]\",\n      \"issue\": \"[what's wrong]\",\n      \"violating_text\": \"[exact quote if applicable]\",\n      \"required_correction\": \"[how to fix]\"\n    }\n  ],\n  \"feedback_addressed\": {\n    \"human_feedback\": \"[what they asked for]\",\n    \"addressed\": true | false,\n    \"notes\": \"[how it was/wasn't addressed]\"\n  },\n  \"summary\": \"[one paragraph assessment]\"\n}\n</output_format>\n\n<scoring>\nPASS: Score >= 70 AND no rubric score <= 2\nFAIL: Score < 70 OR any rubric score <= 2\n\nCalculation: Each rubric = (score/5) * weight, sum all\n</scoring>\n</s>"
+        }
+      },
+      "id": "bishop-evaluation",
+      "name": "Bishop (QA Evaluation)",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [1100, 300],
+      "notes": "Evaluates revised draft with temp=0.0 for determinism"
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-5-20250514",
+        "options": {
+          "temperature": 0
+        }
+      },
+      "id": "bishop-model",
+      "name": "Bishop Model (Claude Sonnet)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.2,
+      "position": [1100, 520],
+      "credentials": {
+        "anthropicApi": {
+          "id": "YOUR_ANTHROPIC_CREDENTIAL_ID",
+          "name": "Anthropic API"
+        }
+      },
+      "notes": "CRITICAL: Temperature MUST be 0.0 for deterministic evaluation"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "bishop-parser",
+      "name": "JSON Parser",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.2,
+      "position": [1300, 520]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract Bishop's evaluation and format output\nconst bishopOutput = $input.first().json;\nlet evaluation;\n\n// Try to parse if string, otherwise use directly\ntry {\n  if (typeof bishopOutput.output === 'string') {\n    // Find JSON in the output\n    const jsonMatch = bishopOutput.output.match(/\\{[\\s\\S]*\\}/);\n    if (jsonMatch) {\n      evaluation = JSON.parse(jsonMatch[0]);\n    }\n  } else if (bishopOutput.output) {\n    evaluation = bishopOutput.output;\n  } else {\n    evaluation = bishopOutput;\n  }\n} catch (e) {\n  // Fallback - try to extract key values\n  const output = bishopOutput.output || JSON.stringify(bishopOutput);\n  evaluation = {\n    overall_status: output.includes('\"PASS\"') ? 'PASS' : 'FAIL',\n    overall_score: 70,\n    summary: 'Evaluation parsing failed - manual review recommended'\n  };\n}\n\n// Get the draft from earlier\nconst draftData = $('Parse Sugar Output').first().json;\n\n// Return the structured output for W2\nreturn {\n  revised_draft: {\n    subject: draftData.draft.subject,\n    body: draftData.draft.body\n  },\n  bishop_score: evaluation.overall_score || 0,\n  bishop_status: evaluation.overall_status || 'FAIL',\n  revision_count: draftData.revision_count,\n  execution_id: draftData.execution_id,\n  evaluation_details: evaluation\n};"
+      },
+      "id": "format-output",
+      "name": "Format Sub-Workflow Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1320, 300],
+      "notes": "Formats output to match W2's expected contract"
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Prepare Revision Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Revision Context": {
+      "main": [
+        [
+          {
+            "node": "Hatch (Revision Analysis)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hatch (Revision Analysis)": {
+      "main": [
+        [
+          {
+            "node": "Sugar (Revision Draft)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hatch Model (Claude Sonnet)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Hatch (Revision Analysis)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sugar (Revision Draft)": {
+      "main": [
+        [
+          {
+            "node": "Parse Sugar Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sugar Model (Claude Sonnet)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Sugar (Revision Draft)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Sugar Output": {
+      "main": [
+        [
+          {
+            "node": "Bishop (QA Evaluation)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bishop (QA Evaluation)": {
+      "main": [
+        [
+          {
+            "node": "Format Sub-Workflow Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bishop Model (Claude Sonnet)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Bishop (QA Evaluation)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "JSON Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Bishop (QA Evaluation)",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "sub-revision-v1",
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "hattie-b-demo"
+  },
+  "pinData": {},
+  "tags": [
+    {
+      "name": "hattie-b",
+      "createdAt": "2025-11-28",
+      "updatedAt": "2025-11-28"
+    },
+    {
+      "name": "sub-workflow",
+      "createdAt": "2025-11-28",
+      "updatedAt": "2025-11-28"
+    },
+    {
+      "name": "revision",
+      "createdAt": "2025-11-28",
+      "updatedAt": "2025-11-28"
+    }
+  ]
+}

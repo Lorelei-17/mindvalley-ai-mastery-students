@@ -1,0 +1,37 @@
+# Frequently Asked Questions
+
+## General Questions
+
+**Q: What are your business hours?**
+A: We're open Monday-Friday, 9am-5pm EST. Weekend hours vary by location.
+
+**Q: Do you offer refunds?**
+A: Yes! We offer a 30-day money-back guarantee on all products. No questions asked.
+
+**Q: How long does shipping take?**
+A: Standard shipping takes 3-5 business days. Express shipping (2-day) is available for an additional fee.
+
+**Q: Do you ship internationally?**
+A: Currently we only ship within the United States and Canada.
+
+## Technical Support
+
+**Q: How do I reset my password?**
+A: Click the "Forgot Password" link on the login page. You'll receive a reset email within 5 minutes.
+
+**Q: My order hasn't arrived. What should I do?**
+A: First, check your tracking number in your order confirmation email. If it shows delivered but you haven't received it, contact us immediately at support@example.com.
+
+**Q: Can I change my order after it's been placed?**
+A: Orders can be modified within 2 hours of placement. After that, the order is processed and cannot be changed.
+
+## Product Information
+
+**Q: Are your products organic?**
+A: Yes, all our products are 100% organic and certified by the USDA.
+
+**Q: Do you offer bulk discounts?**
+A: Yes! Orders of 10+ items receive a 15% discount. Contact our sales team for larger orders.
+
+**Q: What's your return policy?**
+A: Items can be returned within 30 days in original condition. Return shipping is free for defective items.

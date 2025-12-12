@@ -1,0 +1,221 @@
+{
+  "name": "Test Knowledge Base",
+  "description": "Simple workflow to test your Gemini knowledge base files. Tests FAQ, Policies, and Product queries.",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "api-key",
+              "name": "gemini_api_key",
+              "value": "AIzaSyB3nM1Zi8m1gdD0ybnGM9mlRNUKUiG0QsM",
+              "type": "string"
+            },
+            {
+              "id": "test-question",
+              "name": "test_question",
+              "value": "What are your tour options and how do I book?",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "settings",
+      "name": "Settings",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [460, 300],
+      "notes": "Configure your test question here.\n\nTry different questions:\n- What tour packages do you offer?\n- What's included in the walking tour?\n- Do you offer group discounts?\n- What are your cancellation policies?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={{ $('Settings').item.json.gemini_api_key }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"contents\": [{\n    \"parts\": [\n      {\n        \"text\": \"{{ $('Settings').item.json.test_question }}\"\n      },\n      {\n        \"file_data\": {\n          \"file_uri\": \"files/srda0cxaummz\"\n        }\n      },\n      {\n        \"file_data\": {\n          \"file_uri\": \"files/fm1u17g4y4an\"\n        }\n      },\n      {\n        \"file_data\": {\n          \"file_uri\": \"files/5e3ikarln5yv\"\n        }\n      }\n    ]\n  }]\n}",
+        "options": {}
+      },
+      "id": "query-gemini",
+      "name": "Query Gemini with Knowledge Base",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300],
+      "notes": "Sends your question to Gemini along with all 3 Like a Local KL knowledge base files.\n\nGemini will:\n1. Read all your business documents (FAQ, Policies, Products)\n2. Find relevant information\n3. Answer based on your actual business content"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract and format the Gemini response\nconst response = $input.item.json;\n\n// Check for errors\nif (response.error) {\n  return {\n    json: {\n      status: 'ERROR',\n      error_message: response.error.message,\n      error_code: response.error.code,\n      troubleshooting: [\n        'Check if your API key is valid',\n        'Verify file URIs are correct',\n        'Check if files have expired (48 hour limit)'\n      ]\n    }\n  };\n}\n\n// Extract the answer from Gemini\nconst candidates = response.candidates || [];\nconst firstCandidate = candidates[0] || {};\nconst content = firstCandidate.content || {};\nconst parts = content.parts || [];\nconst answerText = parts[0]?.text || 'No response received';\n\n// Extract grounding metadata (shows which files were used)\nconst groundingMetadata = firstCandidate.groundingMetadata || {};\nconst groundingChunks = groundingMetadata.groundingChunks || [];\n\n// Format sources\nconst sources = groundingChunks.map((chunk, idx) => {\n  const uri = chunk.retrievedContext?.uri || 'Unknown';\n  const title = chunk.retrievedContext?.title || uri;\n  return `${idx + 1}. ${title}`;\n});\n\nreturn {\n  json: {\n    status: 'SUCCESS',\n    question: $('Settings').item.json.test_question,\n    answer: answerText,\n    sources_used: sources.length > 0 ? sources : ['No specific sources cited'],\n    total_sources: sources.length,\n    raw_response: response\n  }\n};"
+      },
+      "id": "format-response",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300],
+      "notes": "Extracts the answer and shows which files were used to generate it."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "status-check",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "SUCCESS",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "check-status",
+      "name": "Success?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1120, 300],
+      "notes": "Routes based on whether the query succeeded or failed."
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "result-status",
+              "name": "result",
+              "value": "=✅ SUCCESS!",
+              "type": "string"
+            },
+            {
+              "id": "question",
+              "name": "question",
+              "value": "={{ $json.question }}",
+              "type": "string"
+            },
+            {
+              "id": "answer",
+              "name": "answer",
+              "value": "={{ $json.answer }}",
+              "type": "string"
+            },
+            {
+              "id": "sources",
+              "name": "sources_used",
+              "value": "={{ $json.sources_used }}",
+              "type": "array"
+            },
+            {
+              "id": "message",
+              "name": "message",
+              "value": "Your knowledge base is working! Gemini successfully read your files and answered the question.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "success-output",
+      "name": "Success Output",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1340, 200],
+      "notes": "Shows the successful answer from Gemini.\n\nCheck the 'answer' field to see what Gemini said!"
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "result-status",
+              "name": "result",
+              "value": "=❌ ERROR",
+              "type": "string"
+            },
+            {
+              "id": "error",
+              "name": "error_message",
+              "value": "={{ $json.error_message }}",
+              "type": "string"
+            },
+            {
+              "id": "troubleshooting",
+              "name": "troubleshooting_steps",
+              "value": "={{ $json.troubleshooting }}",
+              "type": "array"
+            },
+            {
+              "id": "help",
+              "name": "what_to_do",
+              "value": "Check the error message and troubleshooting steps. Common issues: expired API key, expired file URIs (48 hour limit), or incorrect file URIs.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "error-output",
+      "name": "Error Output",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1340, 400],
+      "notes": "Shows error details if something went wrong."
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [[{"node": "Settings", "type": "main", "index": 0}]]
+    },
+    "Settings": {
+      "main": [[{"node": "Query Gemini with Knowledge Base", "type": "main", "index": 0}]]
+    },
+    "Query Gemini with Knowledge Base": {
+      "main": [[{"node": "Format Response", "type": "main", "index": 0}]]
+    },
+    "Format Response": {
+      "main": [[{"node": "Success?", "type": "main", "index": 0}]]
+    },
+    "Success?": {
+      "main": [
+        [{"node": "Success Output", "type": "main", "index": 0}],
+        [{"node": "Error Output", "type": "main", "index": 0}]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "instanceId": "mindvalley-ai-mastery-test"
+  },
+  "tags": [
+    {"name": "Test", "createdAt": "2025-12-09"},
+    {"name": "Knowledge-Base", "createdAt": "2025-12-09"},
+    {"name": "Gemini", "createdAt": "2025-12-09"}
+  ],
+  "versionId": "v1-2025-12-09"
+}

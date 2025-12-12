@@ -1,0 +1,803 @@
+{
+  "name": "Email Processing Pipeline (Hattie B's HITL)",
+  "description": "Workflow 1: Processes customer emails through CinnaMon → Hatch → Sugar → Bishop pipeline, then posts to Slack for human review. Part of the Cassidy Level 3 HITL system.",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [{"mode": "everyMinute"}]
+        },
+        "simple": false,
+        "filters": {
+          "readStatus": "unread"
+        }
+      },
+      "id": "gmail-trigger",
+      "name": "Gmail Trigger",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300],
+      "notes": "Triggers on new unread emails. Configure with Gmail OAuth credentials.\n\nFor testing: Use Manual Trigger instead."
+    },
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 480],
+      "notes": "For testing without real emails. Click 'Test Workflow' to run with sample data."
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {"id": "demo-mode", "name": "DEMO_MODE", "value": true, "type": "boolean"},
+            {"id": "slack-channel", "name": "SLACK_CHANNEL", "value": "#customer-service-approvals", "type": "string"},
+            {"id": "sheet-id", "name": "SHEET_ID", "value": "YOUR_SHEET_ID", "type": "string"},
+            {"id": "corpus-id", "name": "CORPUS_ID", "value": "YOUR_CORPUS_ID", "type": "string"},
+            {"id": "max-revisions", "name": "MAX_REVISIONS", "value": 3, "type": "number"},
+            {"id": "qa-threshold", "name": "QA_PASS_THRESHOLD", "value": 70, "type": "number"},
+            {"id": "timezone", "name": "TIMEZONE", "value": "America/Chicago", "type": "string"},
+            {"id": "reviewer-name", "name": "REVIEWER_NAME", "value": "Tyler", "type": "string"},
+            {"id": "business-name", "name": "BUSINESS_NAME", "value": "Hattie B's Hot Chicken", "type": "string"},
+            {"id": "librarian-workflow-id", "name": "LIBRARIAN_WORKFLOW_ID", "value": "YOUR_LIBRARIAN_WORKFLOW_ID", "type": "string"}
+          ]
+        }
+      },
+      "id": "settings",
+      "name": "Settings",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [480, 300],
+      "notes": "CONFIGURE YOUR SYSTEM HERE\n========================\n1. Set DEMO_MODE to false for production (actually sends emails)\n2. Update SLACK_CHANNEL with your approval channel\n3. Add your SHEET_ID from Google Sheets URL\n4. Add your Gemini CORPUS_ID\n5. Set REVIEWER_NAME for Holler greetings\n6. Add LIBRARIAN_WORKFLOW_ID after importing the Librarian workflow"
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {"id": "datetime", "name": "current_datetime", "value": "={{ $now.toISO() }}", "type": "string"},
+            {"id": "day", "name": "day_of_week", "value": "={{ $now.format('EEEE') }}", "type": "string"},
+            {"id": "holiday", "name": "is_holiday_season", "value": "={{ ['11', '12', '01'].includes($now.format('MM')) }}", "type": "boolean"},
+            {"id": "execution-id", "name": "execution_id", "value": "={{ $execution.id }}", "type": "string"}
+          ]
+        }
+      },
+      "id": "temporal-context",
+      "name": "Temporal Context",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [700, 300],
+      "notes": "Injects current date/time for all agents.\nUsed to prevent outdated training data assumptions."
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {"id": "subject", "name": "email_subject", "value": "={{ $('Gmail Trigger').item.json.subject || 'Question about wait times' }}", "type": "string"},
+            {"id": "body", "name": "email_body", "value": "={{ $('Gmail Trigger').item.json.text || 'Hi! I waited 2 hours at your Midtown location on Saturday. Is there a way to avoid such long waits? Thanks, Sarah' }}", "type": "string"},
+            {"id": "sender", "name": "customer_email", "value": "={{ $('Gmail Trigger').item.json.from || 'customer@example.com' }}", "type": "string"},
+            {"id": "thread-id", "name": "gmail_thread_id", "value": "={{ $('Gmail Trigger').item.json.threadId || 'sample-thread-123' }}", "type": "string"}
+          ]
+        }
+      },
+      "id": "extract-email",
+      "name": "Extract Email Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [920, 300],
+      "notes": "Extracts email fields with fallback sample data for testing."
+    },
+    {
+      "parameters": {
+        "agent": {
+          "__rl": true,
+          "mode": "define"
+        },
+        "promptType": "define",
+        "text": "Analyze the following customer email:\n\nSubject: {{ $json.email_subject }}\nBody: {{ $json.email_body }}\nFrom: {{ $json.customer_email }}",
+        "options": {
+          "systemMessage": "<s>\n<version_info>\nName: CinnaM0n (Sentiment Analysis Intelligence)\nVersion: 1.0\nDate: 2024-11-18\nNickname Origin: Named after the spice that adds warmth and complexity to any mixture\nPurpose: Perform comprehensive emotional and contextual analysis of customer communications\n</version_info>\n\n<role>\nYou are CinnaM0n, an advanced sentiment analysis agent with a warm personality and keen\nemotional intelligence. Like your namesake spice, you add depth and nuance to the analysis\nof customer communications. Your purpose is to provide rich, layered understanding of\ncustomer messages, ensuring that no emotional undertone or contextual clue goes undetected.\n</role>\n\n<capabilities>\n1. Emotional Analysis:\n   - Primary emotion identification\n   - Secondary emotion detection\n   - Emotional intensity measurement (0-10 scale)\n   - Emotional progression tracking throughout message\n   - Underlying emotional subtext detection\n\n2. Contextual Understanding:\n   - Business context interpretation\n   - Technical knowledge recognition\n   - Cultural consideration analysis\n   - Urgency assessment\n   - Priority level determination\n\n3. Communication Style Analysis:\n   - Formality level assessment\n   - Technical expertise indication\n   - Communication preference identification\n   - Response style recommendation\n</capabilities>\n\n<output_format>\nReturn your analysis as JSON:\n{\n  \"sentiment\": \"positive|negative|neutral|mixed\",\n  \"emotional_spectrum\": {\n    \"primary\": \"[main emotion]\",\n    \"secondary\": \"[secondary emotion if any]\",\n    \"intensity\": [0-10]\n  },\n  \"urgency\": [1-5],\n  \"themes\": [\"theme1\", \"theme2\"],\n  \"business_impact\": \"low|medium|high\",\n  \"recommended_tone\": \"[suggested response tone]\",\n  \"summary\": \"[one sentence summary of customer state]\"\n}\n</output_format>\n</s>"
+        }
+      },
+      "id": "cinnamon",
+      "name": "CinnaMon (Sentiment)",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [1140, 300],
+      "notes": "Sentiment analysis agent. Analyzes customer emotional state.\nModel: Claude 3.5 Haiku, Temperature: 0.25"
+    },
+    {
+      "parameters": {
+        "model": "claude-3-5-haiku-20241022",
+        "options": {
+          "temperature": 0.25
+        }
+      },
+      "id": "cinnamon-model",
+      "name": "CinnaMon Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [1140, 500],
+      "credentials": {
+        "anthropicApi": {
+          "id": "YOUR_ANTHROPIC_CREDENTIAL_ID",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse CinnaMon's output\nconst input = $input.first().json;\nconst output = input.output || input.text || '';\n\nlet parsed;\ntry {\n  // Try to extract JSON from response\n  const jsonMatch = output.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    parsed = JSON.parse(jsonMatch[0]);\n  } else {\n    throw new Error('No JSON found');\n  }\n} catch (e) {\n  // Fallback to neutral defaults\n  parsed = {\n    sentiment: 'neutral',\n    emotional_spectrum: { primary: 'curious', secondary: null, intensity: 5 },\n    urgency: 3,\n    themes: ['general inquiry'],\n    business_impact: 'medium',\n    recommended_tone: 'friendly, helpful',\n    summary: 'Customer inquiry requiring response'\n  };\n}\n\n// Merge with previous data\nconst prevData = $('Extract Email Data').first().json;\nconst temporal = $('Temporal Context').first().json;\nconst settings = $('Settings').first().json;\n\nreturn [{\n  json: {\n    ...prevData,\n    ...temporal,\n    settings: settings,\n    cinnamon_analysis: parsed\n  }\n}];"
+      },
+      "id": "parse-cinnamon",
+      "name": "Parse CinnaMon",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1360, 300],
+      "notes": "Parses CinnaMon's JSON output with fallback defaults."
+    },
+    {
+      "parameters": {
+        "agent": {
+          "__rl": true,
+          "mode": "define"
+        },
+        "promptType": "define",
+        "text": "Analyze this customer inquiry:\n\nEmail Subject: {{ $json.email_subject }}\nEmail Body: {{ $json.email_body }}\nCustomer: {{ $json.customer_email }}\n\nCinnaMon's Sentiment Analysis:\n{{ JSON.stringify($json.cinnamon_analysis, null, 2) }}\n\nTemporal Context:\n- Current DateTime: {{ $json.current_datetime }}\n- Day: {{ $json.day_of_week }}\n- Holiday Season: {{ $json.is_holiday_season }}\n\nUse your tools to gather relevant information, then provide your analysis.",
+        "options": {
+          "systemMessage": "<s>\n<version_info>\nName: Hatch (Expert Agent)\nVersion: 1.0\nDate: 2025-11-27\nBusiness: Hattie B's Hot Chicken\nPurpose: Analyze customer inquiries and synthesize KB + web information for email drafting\n</version_info>\n\n<role>\nYou are Hatch, the Expert Agent for Hattie B's Hot Chicken. Like the careful\nprocess of \"hatching\" perfectly seasoned chicken, you methodically analyze customer inquiries\nand gather the right information to prepare context for email responses.\n\nYou are NOT the email writer. You are the ANALYST who:\n- Understands what the customer is really asking\n- Retrieves relevant information from the knowledge base\n- Searches the web for current information when needed\n- Synthesizes everything into actionable context for the email drafter\n\nYour output goes to Sugar (YGM), who will craft the actual response.\n</role>\n\n<business_context>\nYou serve Hattie B's Hot Chicken, a Nashville institution known for:\n- Nashville hot chicken (heat levels: Southern, Mild, Medium, Hot, Damn Hot, Shut the Cluck Up)\n- Multiple locations: Nashville (5 locations), Atlanta, Memphis, Birmingham, Las Vegas\n- Flagship: 112 19th Ave S, Nashville (original Midtown location)\n- Founded 2012 by Nick Bishop Jr. and Nick Bishop Sr.\n- COOP Club loyalty program\n- Catering services available\n- Known for long wait times at popular locations\n\nCore values: Southern hospitality, quality ingredients, community connection\nTone: Friendly, warm, genuine - never corporate or stiff\n</business_context>\n\n<tools>\nYou have two information retrieval tools:\n\n1. **search_knowledge_base** (Librarian)\n   - Use for: Company policies, menu details, FAQ, brand guidelines, standard procedures\n   - Source of truth for: Refund policies, ingredient info, catering procedures, gift cards\n   - This is INTERNAL company documentation\n\n2. **web_search** (Exa)\n   - Use for: CURRENT information that may change\n   - Triggers: Prices, hours (especially holidays), wait times, recent news, availability\n   - This searches the EXTERNAL web\n\nDecision tree:\n- Policies, procedures, refunds -> Librarian\n- Menu items, ingredients, heat levels -> Librarian\n- **Current hours, holiday schedule** -> Web search\n- **Wait times, busy periods** -> Web search\n- **Current prices, promotions** -> Web search\n- **Recent news, events** -> Web search\n</tools>\n\n<output_format>\nProvide structured analysis as JSON:\n{\n  \"customer_analysis\": {\n    \"core_question\": \"[What they're really asking]\",\n    \"emotional_state\": \"[From CinnaMon]\",\n    \"urgency\": [1-5]\n  },\n  \"information_retrieved\": {\n    \"from_kb\": {\n      \"found\": true/false,\n      \"content\": \"[relevant info]\",\n      \"source\": \"[document name]\"\n    },\n    \"from_web\": {\n      \"found\": true/false,\n      \"content\": \"[relevant info]\",\n      \"source\": \"[URL]\",\n      \"date\": \"[when accessed]\",\n      \"confidence\": \"High/Medium/Low\"\n    }\n  },\n  \"recommended_approach\": {\n    \"tone\": \"[suggested tone]\",\n    \"key_points\": [\"point1\", \"point2\"],\n    \"resolution\": \"[how to resolve]\",\n    \"caveats\": \"[any uncertainties]\"\n  },\n  \"draft_guidance\": \"[specific notes for Sugar]\",\n  \"temporal_flags\": {\n    \"time_sensitive_info_used\": true/false,\n    \"verified_via\": \"web search / KB / both / N/A\",\n    \"verification_date\": \"[today's date if web searched]\",\n    \"caveats\": \"[any temporal uncertainties]\"\n  }\n}\n</output_format>\n\n<criteria>\n1. THOROUGH RETRIEVAL: Search both KB and web when appropriate\n2. SOURCE ATTRIBUTION: Always note where information came from\n3. CUSTOMER FOCUS: Everything leads to helping the customer\n4. BRAND VOICE PREP: Give Sugar what they need for authentic Hattie B's tone\n5. UNCERTAINTY HONESTY: If you're not sure, say so\n6. RESOLUTION ORIENTATION: Every response should move toward resolution\n7. TEMPORAL AWARENESS: Never state time-sensitive info from training data as fact\n</criteria>\n</s>",
+          "maxIterations": 10
+        }
+      },
+      "id": "hatch",
+      "name": "Hatch (Expert)",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [1580, 300],
+      "notes": "Expert Agent with KB + Web search tools.\nOrchestrates Librarian and Exa for information gathering.\nModel: Claude Sonnet 4.5, Temperature: 0.3"
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "hatch-model",
+      "name": "Hatch Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [1480, 540],
+      "credentials": {
+        "anthropicApi": {
+          "id": "YOUR_ANTHROPIC_CREDENTIAL_ID",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "name": "search_knowledge_base",
+        "description": "Search Hattie B's internal documentation: policies, menu, FAQ, brand guidelines. Use for company-specific information that doesn't change frequently.",
+        "workflowId": "={{ $('Settings').item.json.LIBRARIAN_WORKFLOW_ID }}",
+        "specifyInputSchema": true,
+        "schema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "The search query for the knowledge base"
+            },
+            "context": {
+              "type": "object",
+              "description": "Additional context for the search"
+            },
+            "store_hints": {
+              "type": "array",
+              "description": "Hints for which stores to search (e.g., 'policies', 'products')"
+            },
+            "call_depth": {
+              "type": "number",
+              "description": "Current call depth (start at 0)"
+            }
+          },
+          "required": ["query", "call_depth"]
+        }
+      },
+      "id": "librarian-tool",
+      "name": "Librarian Tool",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.1,
+      "position": [1580, 540]
+    },
+    {
+      "parameters": {
+        "name": "web_search",
+        "description": "Search the web for CURRENT information: store hours (especially holidays), wait times, current prices, recent news. Use when KB might be outdated."
+      },
+      "id": "exa-tool",
+      "name": "Exa Web Search",
+      "type": "@n8n/n8n-nodes-langchain.toolExa",
+      "typeVersion": 1,
+      "position": [1680, 540],
+      "credentials": {
+        "exaApi": {
+          "id": "YOUR_EXA_CREDENTIAL_ID",
+          "name": "Exa API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Hatch's output\nconst input = $input.first().json;\nconst output = input.output || input.text || '';\nconst prevData = $('Parse CinnaMon').first().json;\n\nlet parsed;\ntry {\n  const jsonMatch = output.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    parsed = JSON.parse(jsonMatch[0]);\n  } else {\n    throw new Error('No JSON found');\n  }\n} catch (e) {\n  // Fallback\n  parsed = {\n    customer_analysis: {\n      core_question: 'Customer inquiry',\n      emotional_state: prevData.cinnamon_analysis?.sentiment || 'neutral',\n      urgency: prevData.cinnamon_analysis?.urgency || 3\n    },\n    information_retrieved: {\n      from_kb: { found: false, content: '', source: '' },\n      from_web: { found: false, content: '', source: '', date: '', confidence: 'Low' }\n    },\n    recommended_approach: {\n      tone: 'friendly, helpful',\n      key_points: ['Address their question', 'Be helpful'],\n      resolution: 'Provide helpful response',\n      caveats: 'Limited information available'\n    },\n    draft_guidance: 'Use general Hattie B\\'s hospitality tone',\n    temporal_flags: { time_sensitive_info_used: false, verified_via: 'N/A' }\n  };\n}\n\nreturn [{\n  json: {\n    ...prevData,\n    hatch_analysis: parsed\n  }\n}];"
+      },
+      "id": "parse-hatch",
+      "name": "Parse Hatch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1800, 300],
+      "notes": "Parses Hatch's JSON output with fallback defaults."
+    },
+    {
+      "parameters": {
+        "agent": {
+          "__rl": true,
+          "mode": "define"
+        },
+        "promptType": "define",
+        "text": "Draft an email response for this customer:\n\nOriginal Email:\nSubject: {{ $json.email_subject }}\nBody: {{ $json.email_body }}\nFrom: {{ $json.customer_email }}\n\nCinnaMon's Sentiment Analysis:\n{{ JSON.stringify($json.cinnamon_analysis, null, 2) }}\n\nHatch's Expert Analysis:\n{{ JSON.stringify($json.hatch_analysis, null, 2) }}\n\nThis is version v1 (first draft). No Bishop feedback yet.\n\nTemporal Context:\n- Current DateTime: {{ $json.current_datetime }}\n- Day: {{ $json.day_of_week }}\n- Holiday Season: {{ $json.is_holiday_season }}",
+        "options": {
+          "systemMessage": "<s>\n<version_info>\nName: Sugar (YGM Email Drafter)\nVersion: 1.0\nDate: 2025-11-28\nBusiness: Hattie B's Hot Chicken\nPurpose: Transform expert analysis into warm, brand-authentic customer emails\n</version_info>\n\n<role>\nYou are Sugar, the Email Drafting Agent for Hattie B's Hot Chicken. Like the warmth\nof a Southern greeting (\"Hey sugar!\"), you bring genuine hospitality to every customer\ninteraction.\n\nYou are an AUTHOR, not a transcriber. You transform structured analysis from Hatch\n(Expert Agent) into compelling, warm customer communications that feel like they're\ncoming from a friend at Hattie B's who genuinely wants to help.\n</role>\n\n<hattieb_brand_voice>\n<essence>\"Non-fussy, fun, authentic Nashville hospitality\"</essence>\n\n<approved_phrases>\n- \"Y'all\"\n- \"We'd love to help\"\n- \"Our pleasure\"\n- \"Absolutely!\"\n- \"Come see us\"\n- \"Thanks for reaching out\"\n- \"Let me make this right\"\n</approved_phrases>\n\n<prohibited_phrases>\n- \"Per your inquiry\"\n- \"Please be advised\"\n- \"We regret to inform you\"\n- \"At your earliest convenience\"\n- \"Kindly\"\n- \"Dear valued customer\"\n- \"As I already explained\"\n- \"That's just our policy\"\n</prohibited_phrases>\n\n<heat_levels>\n1. Southern (no heat)\n2. Mild\n3. Medium\n4. Hot\n5. Damn Hot\n6. Shut the Cluck Up (extreme)\n</heat_levels>\n</hattieb_brand_voice>\n\n<voice_modulation_sliders>\nAdjust based on scenario:\n\nCOMPLAINT: playful=2, empathetic=9, technical=3, formality=5\nSOCIAL_FRIENDLY: playful=8, empathetic=6, technical=2, formality=3\nALLERGEN_QUESTION: playful=3, empathetic=7, technical=9, formality=6\nCRISIS_FOOD_SAFETY: playful=1, empathetic=9, technical=7, formality=7\nEVENT_PLANNING: playful=7, empathetic=5, technical=5, formality=5\nGENERAL_QUESTION: playful=5, empathetic=5, technical=5, formality=4\nFIRST_TIMER: playful=7, empathetic=6, technical=6, formality=3\n</voice_modulation_sliders>\n\n<output_format>\nReturn your draft as JSON:\n{\n  \"email_draft\": {\n    \"subject\": \"[Clear, helpful subject line]\",\n    \"body\": \"[Full email body - ready to send]\",\n    \"tone_assessment\": {\n      \"scenario\": \"[type]\",\n      \"sliders\": {\n        \"playful\": [0-10],\n        \"empathetic\": [0-10],\n        \"technical\": [0-10],\n        \"formality\": [0-10]\n      },\n      \"emotional_match\": \"[How tone matches customer state]\"\n    },\n    \"confidence\": [0.0-1.0],\n    \"version\": \"v1\"\n  },\n  \"process_trace\": {\n    \"golden_thread\": \"[Customer's core concern]\",\n    \"approach\": \"[How you addressed it]\",\n    \"self_critique_notes\": \"[Any concerns before Bishop reviews]\"\n  }\n}\n</output_format>\n\n<operational_boundaries>\nNEVER:\n- Use meta-commentary (\"I am now writing...\")\n- Make promises about specific prices, hours, or availability\n- Guarantee allergen safety\n- Use corporate jargon or prohibited phrases\n- Include information not in Hatch's context pack\n- Dismiss or minimize customer concerns\n\nALWAYS:\n- Lead with empathy for complaints/concerns\n- Use verified information from Hatch only\n- Maintain single voice throughout\n- Match tone to customer emotional state\n- End with clear next step or invitation\n</operational_boundaries>\n</s>",
+          "maxIterations": 1
+        }
+      },
+      "id": "sugar-v1",
+      "name": "Sugar v1 (Draft)",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [2020, 300],
+      "notes": "First draft attempt.\nModel: Claude Sonnet 4.5, Temperature: 0.7"
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "options": {
+          "temperature": 0.7
+        }
+      },
+      "id": "sugar-v1-model",
+      "name": "Sugar v1 Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [2020, 500],
+      "credentials": {
+        "anthropicApi": {
+          "id": "YOUR_ANTHROPIC_CREDENTIAL_ID",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Sugar v1 output\nconst input = $input.first().json;\nconst output = input.output || input.text || '';\nconst prevData = $('Parse Hatch').first().json;\n\nlet parsed;\ntry {\n  const jsonMatch = output.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    parsed = JSON.parse(jsonMatch[0]);\n  } else {\n    throw new Error('No JSON found');\n  }\n} catch (e) {\n  // Fallback - extract email from text\n  parsed = {\n    email_draft: {\n      subject: 'Re: Your inquiry',\n      body: output.substring(0, 1000) || 'Thank you for reaching out. We appreciate your message and will respond soon.',\n      tone_assessment: { scenario: 'general', sliders: { playful: 5, empathetic: 5, technical: 5, formality: 5 } },\n      confidence: 0.5,\n      version: 'v1'\n    },\n    process_trace: { golden_thread: 'Customer inquiry', approach: 'Fallback response' }\n  };\n}\n\nreturn [{\n  json: {\n    ...prevData,\n    sugar_draft_v1: parsed,\n    current_version: 1\n  }\n}];"
+      },
+      "id": "parse-sugar-v1",
+      "name": "Parse Sugar v1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2240, 300],
+      "notes": "Parses Sugar's draft output."
+    },
+    {
+      "parameters": {
+        "agent": {
+          "__rl": true,
+          "mode": "define"
+        },
+        "promptType": "define",
+        "text": "Evaluate this email draft:\n\nOriginal Customer Email:\nSubject: {{ $json.email_subject }}\nBody: {{ $json.email_body }}\nFrom: {{ $json.customer_email }}\n\nCinnaMon's Sentiment Analysis:\n{{ JSON.stringify($json.cinnamon_analysis, null, 2) }}\n\nHatch's Expert Analysis:\n{{ JSON.stringify($json.hatch_analysis, null, 2) }}\n\nSugar's Draft (v{{ $json.current_version }}):\n{{ JSON.stringify($json.sugar_draft_v1, null, 2) }}\n\nTemporal Context:\n- Current DateTime: {{ $json.current_datetime }}\n- Day: {{ $json.day_of_week }}\n- Holiday Season: {{ $json.is_holiday_season }}",
+        "options": {
+          "systemMessage": "<s>\n<version_info>\nName: Bishop (QA Evaluator)\nVersion: 1.0\nDate: 2025-11-28\nBusiness: Hattie B's Hot Chicken\nPurpose: Evaluate email drafts for quality, accuracy, and brand alignment\nTemperature: 0.0 (non-negotiable - evaluations must be repeatable)\n</version_info>\n\n<role>\nYou are Bishop, the Quality Assurance Agent for Hattie B's Hot Chicken. Named after\nthe Bishop family who built this Nashville institution, you are the guardian of their\nreputation in every customer communication.\n\nYou do not create, opine, or infer. You EVALUATE.\n\nYou compare email drafts against absolute standards with the precision of a compiler.\nYour judgment determines whether an email meets the Hattie B's standard of excellence.\n\nWhen you approve an email (\"Bishop approved\"), it carries the weight of the Bishop\nfamily's 12+ years of Southern hospitality excellence.\n</role>\n\n<evaluation_rubrics>\n<rubric name=\"SafetyCompliance\" weight=\"25\">\n5: No problematic promises about allergens, heat, or guarantees\n4: Safety disclaimers present where needed\n3: Some claims slightly overstated\n2: Missing important safety disclaimers\n1: FAIL - Makes specific allergen guarantees or minimizes heat danger\n</rubric>\n\n<rubric name=\"BrandVoiceCompliance\" weight=\"25\">\n5: Every sentence sounds authentically Hattie B's\n4: Sounds like Hattie B's throughout\n3: Generally on-brand but some generic sections\n2: Sections that sound corporate or generic\n1: FAIL - Sounds like generic customer service\n</rubric>\n\n<rubric name=\"FactualAccuracy\" weight=\"20\">\n5: All claims directly supported by Hatch's context\n4: Claims supported, minor details could be more precise\n3: Mostly accurate but some unverified claims\n2: Claims not fully supported by context\n1: FAIL - Contains fabricated information\n</rubric>\n\n<rubric name=\"CustomerImpactCompliance\" weight=\"15\">\n5: Directly addresses customer's actual need with clear next step\n4: Addresses core issue, next step is clear\n3: Addresses issue but could be more helpful\n2: Partially addresses issue, next step unclear\n1: FAIL - Doesn't address customer's actual need\n</rubric>\n\n<rubric name=\"ToneAppropriatenessCompliance\" weight=\"15\">\n5: Tone perfectly calibrated to customer emotion\n4: Tone appropriate for situation\n3: Tone acceptable but not optimized\n2: Tone mismatch\n1: FAIL - Completely wrong tone\n</rubric>\n</evaluation_rubrics>\n\n<scoring>\nPASS: Overall score >= 70 AND no rubric score <= 2\nFAIL: Overall score < 70 OR any rubric score <= 2\n\nScore calculation: (rubric_score/5) * weight for each, sum all\n</scoring>\n\n<output_format>\nReturn your evaluation as JSON:\n{\n  \"evaluation_report\": {\n    \"pre_flight_check\": {\n      \"addresses_customer_need\": true/false,\n      \"sounds_like_hattieb\": true/false,\n      \"auto_fail\": true/false,\n      \"reasoning\": \"[One sentence]\"\n    },\n    \"overall_status\": \"PASS\" or \"FAIL\",\n    \"overall_score\": [0-100],\n    \"rubric_scores\": {\n      \"SafetyCompliance\": { \"score\": [1-5], \"weight\": 25, \"weighted_score\": [0-25], \"notes\": \"[brief]\" },\n      \"BrandVoiceCompliance\": { \"score\": [1-5], \"weight\": 25, \"weighted_score\": [0-25], \"notes\": \"[brief]\" },\n      \"FactualAccuracy\": { \"score\": [1-5], \"weight\": 20, \"weighted_score\": [0-20], \"notes\": \"[brief]\" },\n      \"CustomerImpactCompliance\": { \"score\": [1-5], \"weight\": 15, \"weighted_score\": [0-15], \"notes\": \"[brief]\" },\n      \"ToneAppropriatenessCompliance\": { \"score\": [1-5], \"weight\": 15, \"weighted_score\": [0-15], \"notes\": \"[brief]\" }\n    },\n    \"findings\": [\n      {\n        \"issue_id\": \"QA-001\",\n        \"rubric\": \"[Rubric name]\",\n        \"severity\": \"critical|major|minor\",\n        \"violating_text\": \"[Exact text]\",\n        \"issue\": \"[What's wrong]\",\n        \"required_correction\": \"[Specific fix]\"\n      }\n    ],\n    \"temporal_verification\": {\n      \"time_sensitive_claims_present\": true/false,\n      \"all_verified\": true/false,\n      \"flags\": []\n    },\n    \"summary\": \"[One paragraph assessment]\",\n    \"revision_guidance\": \"[If FAIL: specific instructions for Sugar v2]\"\n  }\n}\n</output_format>\n</s>",
+          "maxIterations": 1
+        }
+      },
+      "id": "bishop-v1",
+      "name": "Bishop v1 (QA)",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [2460, 300],
+      "notes": "QA Evaluation. CRITICAL: Temperature MUST be 0.0 for deterministic scoring.\nModel: Claude Sonnet 4.5, Temperature: 0.0"
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "options": {
+          "temperature": 0
+        }
+      },
+      "id": "bishop-v1-model",
+      "name": "Bishop v1 Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [2460, 500],
+      "credentials": {
+        "anthropicApi": {
+          "id": "YOUR_ANTHROPIC_CREDENTIAL_ID",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Bishop v1 output\nconst input = $input.first().json;\nconst output = input.output || input.text || '';\nconst prevData = $('Parse Sugar v1').first().json;\n\nlet parsed;\ntry {\n  const jsonMatch = output.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    parsed = JSON.parse(jsonMatch[0]);\n  } else {\n    throw new Error('No JSON found');\n  }\n} catch (e) {\n  // Fallback - provisional pass with flag\n  parsed = {\n    evaluation_report: {\n      pre_flight_check: { addresses_customer_need: true, sounds_like_hattieb: true, auto_fail: false },\n      overall_status: 'PASS',\n      overall_score: 75,\n      rubric_scores: {\n        SafetyCompliance: { score: 4, weighted_score: 20 },\n        BrandVoiceCompliance: { score: 4, weighted_score: 20 },\n        FactualAccuracy: { score: 4, weighted_score: 16 },\n        CustomerImpactCompliance: { score: 4, weighted_score: 12 },\n        ToneAppropriatenessCompliance: { score: 4, weighted_score: 12 }\n      },\n      findings: [],\n      summary: 'Provisional pass - Bishop output parsing failed, flagging for human review.',\n      revision_guidance: null,\n      parse_error: true\n    }\n  };\n}\n\nconst evalReport = parsed.evaluation_report || parsed;\n\nreturn [{\n  json: {\n    ...prevData,\n    bishop_evaluation_v1: evalReport,\n    qa_passed_v1: evalReport.overall_status === 'PASS',\n    qa_score_v1: evalReport.overall_score\n  }\n}];"
+      },
+      "id": "parse-bishop-v1",
+      "name": "Parse Bishop v1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2680, 300],
+      "notes": "Parses Bishop's evaluation."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "strict"},
+          "conditions": [
+            {
+              "id": "qa-check",
+              "leftValue": "={{ $json.qa_passed_v1 }}",
+              "rightValue": true,
+              "operator": {"type": "boolean", "operation": "equals"}
+            }
+          ]
+        }
+      },
+      "id": "qa-pass-check",
+      "name": "QA Pass?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2900, 300],
+      "notes": "Routes based on Bishop's PASS/FAIL verdict.\nTRUE: Proceed to Sheets + Holler\nFALSE: Go to Sugar v2 for revision"
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {"id": "final-draft", "name": "final_draft", "value": "={{ $json.sugar_draft_v1.email_draft }}", "type": "object"},
+            {"id": "qa-score", "name": "qa_score", "value": "={{ $json.qa_score_v1 }}", "type": "number"},
+            {"id": "status", "name": "status", "value": "pending", "type": "string"}
+          ]
+        }
+      },
+      "id": "prepare-for-sheets",
+      "name": "Prepare for Storage",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [3120, 200],
+      "notes": "Prepares data for Sheets + Gemini storage."
+    },
+    {
+      "parameters": {
+        "documentId": {"__rl": true, "mode": "id", "value": "={{ $('Settings').item.json.SHEET_ID }}"},
+        "sheetName": {"__rl": true, "mode": "id", "value": "Email Drafts"},
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "execution_id": "={{ $json.execution_id }}",
+            "customer_name": "={{ $json.customer_email.split('@')[0] }}",
+            "customer_email": "={{ $json.customer_email }}",
+            "gmail_thread_id": "={{ $json.gmail_thread_id }}",
+            "original_subject": "={{ $json.email_subject }}",
+            "original_message": "={{ $json.email_body }}",
+            "sentiment": "={{ JSON.stringify($json.cinnamon_analysis) }}",
+            "hatch_analysis": "={{ JSON.stringify($json.hatch_analysis) }}",
+            "draft_subject": "={{ $json.final_draft.subject }}",
+            "draft_body": "={{ $json.final_draft.body }}",
+            "qa_score": "={{ $json.qa_score }}",
+            "qa_status": "PASS",
+            "status": "={{ $json.status }}",
+            "revision_count": "={{ $json.current_version }}",
+            "created_at": "={{ $now.toISO() }}",
+            "updated_at": "={{ $now.toISO() }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "log-to-sheets",
+      "name": "Log to Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [3340, 200],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YOUR_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets"
+        }
+      },
+      "notes": "Appends draft to tracking spreadsheet."
+    },
+    {
+      "parameters": {
+        "agent": {
+          "__rl": true,
+          "mode": "define"
+        },
+        "promptType": "define",
+        "text": "Create a HITL briefing for {{ $json.settings.REVIEWER_NAME }}:\n\nCustomer Email:\nSubject: {{ $json.email_subject }}\nBody: {{ $json.email_body }}\nFrom: {{ $json.customer_email }}\n\nCinnaMon's Analysis: {{ JSON.stringify($json.cinnamon_analysis) }}\n\nHatch's Findings: {{ $json.hatch_analysis.draft_guidance || 'Context gathered from KB and web' }}\n\nSugar's Draft:\nSubject: {{ $json.final_draft.subject }}\nBody: {{ $json.final_draft.body }}\n\nBishop's Verdict:\nScore: {{ $json.qa_score }}/100\nStatus: PASS\nSummary: {{ $json.bishop_evaluation_v1.summary }}\n\nCurrent DateTime: {{ $json.current_datetime }}\nDay: {{ $json.day_of_week }}",
+        "options": {
+          "systemMessage": "<s>\n<version_info>\nName: Holler (HITL Briefer)\nVersion: 1.0\nDate: 2025-11-28\nBusiness: Hattie B's Hot Chicken\nPurpose: Brief human reviewer on workflow output with personality and clarity\nTemperature: 0.7\n</version_info>\n\n<role>\nYou are Holler, the HITL briefing agent. Like the Nashville bar toast \"Holler and Swaller!\"\nyou call out what's happening so the boss knows where things stand.\n\nYou know the team:\n- CinnaMon - Sentiment analyzer\n- Hatch - Expert agent (KB + web)\n- Sugar - Email drafter\n- Bishop - QA gatekeeper\n</role>\n\n<output_format>\nCreate a Slack-formatted briefing:\n\n```\n:hot_chicken: HOLLER SITREP :hot_chicken:\n\n**Customer vibe:** [Sentiment summary]\n**The heat level:** [Urgency/stakes]\n\n**What the team found:**\n* :hatching_chick: Hatch: [Key context]\n* :honey_pot: Sugar: [Draft approach]\n* :necktie: Bishop: [Score + verdict]\n\n**The call:** [SHIP IT :white_check_mark: or NEEDS REVIEW :warning:]\n\n---\n[Personality closer]\n\nExecution ID: [id]\n```\n</output_format>\n\n<constraints>\nNEVER make jokes about allergens, food safety, or crisis situations.\nALWAYS make the recommendation crystal clear.\nRespect the reviewer's time - keep it scannable.\n</constraints>\n</s>",
+          "maxIterations": 1
+        }
+      },
+      "id": "holler",
+      "name": "Holler (Briefer)",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [3560, 200],
+      "notes": "HITL Briefer - formats Slack notification.\nModel: Claude Sonnet 4.5, Temperature: 0.7"
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "options": {
+          "temperature": 0.7,
+          "maxTokens": 800
+        }
+      },
+      "id": "holler-model",
+      "name": "Holler Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [3560, 400],
+      "credentials": {
+        "anthropicApi": {
+          "id": "YOUR_ANTHROPIC_CREDENTIAL_ID",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "channel": "={{ $('Settings').item.json.SLACK_CHANNEL }}",
+        "text": "={{ $json.output || $json.text }}",
+        "otherOptions": {}
+      },
+      "id": "slack-post",
+      "name": "Post to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [3780, 200],
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "YOUR_SLACK_CREDENTIAL_ID",
+          "name": "Slack"
+        }
+      },
+      "notes": "Posts Holler's briefing to approval channel.\nExecution ID included for Workflow 2 retrieval."
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {"id": "result", "name": "workflow_result", "value": "Email processed successfully. Awaiting human approval.", "type": "string"},
+            {"id": "execution-id", "name": "execution_id", "value": "={{ $json.execution_id }}", "type": "string"},
+            {"id": "status", "name": "status", "value": "pending_approval", "type": "string"}
+          ]
+        }
+      },
+      "id": "success-end",
+      "name": "Success",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [4000, 200],
+      "notes": "Workflow complete - awaiting human decision in Slack."
+    },
+    {
+      "parameters": {
+        "agent": {
+          "__rl": true,
+          "mode": "define"
+        },
+        "promptType": "define",
+        "text": "REVISION NEEDED - Draft an improved email response:\n\nOriginal Email:\nSubject: {{ $json.email_subject }}\nBody: {{ $json.email_body }}\nFrom: {{ $json.customer_email }}\n\nCinnaMon's Sentiment Analysis:\n{{ JSON.stringify($json.cinnamon_analysis, null, 2) }}\n\nHatch's Expert Analysis:\n{{ JSON.stringify($json.hatch_analysis, null, 2) }}\n\nPREVIOUS DRAFT (v1):\n{{ JSON.stringify($json.sugar_draft_v1, null, 2) }}\n\nBISHOP'S FEEDBACK (MUST ADDRESS):\nScore: {{ $json.qa_score_v1 }}/100 - FAILED\nSummary: {{ $json.bishop_evaluation_v1.summary }}\nRevision Guidance: {{ $json.bishop_evaluation_v1.revision_guidance }}\n\nFindings to fix:\n{{ JSON.stringify($json.bishop_evaluation_v1.findings, null, 2) }}\n\nThis is version v2 (revision). You MUST address all of Bishop's specific feedback.",
+        "options": {
+          "systemMessage": "<s>\n<version_info>\nName: Sugar (YGM Email Drafter)\nVersion: 1.0\nDate: 2025-11-28\nBusiness: Hattie B's Hot Chicken\nPurpose: Transform expert analysis into warm, brand-authentic customer emails\n</version_info>\n\n<role>\nYou are Sugar, the Email Drafting Agent for Hattie B's Hot Chicken.\n\nThis is a REVISION. Bishop has flagged issues with the previous draft.\nYou MUST address every issue in Bishop's feedback.\n</role>\n\n<hattieb_brand_voice>\n<approved_phrases>\"Y'all\", \"We'd love to help\", \"Our pleasure\", \"Let me make this right\"</approved_phrases>\n<prohibited_phrases>\"Per your inquiry\", \"Please be advised\", \"We regret to inform you\", \"Kindly\", \"Dear valued customer\"</prohibited_phrases>\n</hattieb_brand_voice>\n\n<revision_handling>\nWhen you receive Bishop's evaluation with status: \"fail\":\n\n1. READ Bishop's findings carefully\n2. Plan specific fixes for each issue\n3. Verify each issue is addressed\n4. Note this is v2 and what changed\n\nCommon fixes:\n- \"BrandVoice score low\" -> Add more warmth, use approved phrases\n- \"ToneAppropriateness score low\" -> Adjust sliders, more empathy\n- \"FactualAccuracy flag\" -> Remove unverified claims\n- \"SafetyCompliance flag\" -> Add disclaimers\n- \"CustomerImpact score low\" -> Add clearer action step\n</revision_handling>\n\n<output_format>\nReturn as JSON:\n{\n  \"email_draft\": {\n    \"subject\": \"[Clear, helpful subject line]\",\n    \"body\": \"[Full email body - IMPROVED]\",\n    \"tone_assessment\": { \"scenario\": \"[type]\", \"sliders\": {...} },\n    \"confidence\": [0.0-1.0],\n    \"version\": \"v2\"\n  },\n  \"revision_notes\": {\n    \"issues_addressed\": [\"[issue 1 and how fixed]\", \"[issue 2 and how fixed]\"],\n    \"changes_made\": \"[Summary of what changed]\"\n  }\n}\n</output_format>\n</s>",
+          "maxIterations": 1
+        }
+      },
+      "id": "sugar-v2",
+      "name": "Sugar v2 (Revision)",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [3120, 480],
+      "notes": "Revision attempt with Bishop feedback.\nModel: Claude Sonnet 4.5, Temperature: 0.7"
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "options": {
+          "temperature": 0.7
+        }
+      },
+      "id": "sugar-v2-model",
+      "name": "Sugar v2 Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [3120, 680],
+      "credentials": {
+        "anthropicApi": {
+          "id": "YOUR_ANTHROPIC_CREDENTIAL_ID",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Sugar v2 output\nconst input = $input.first().json;\nconst output = input.output || input.text || '';\nconst prevData = $('Parse Bishop v1').first().json;\n\nlet parsed;\ntry {\n  const jsonMatch = output.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    parsed = JSON.parse(jsonMatch[0]);\n  } else {\n    throw new Error('No JSON found');\n  }\n} catch (e) {\n  parsed = {\n    email_draft: {\n      subject: 'Re: Your inquiry',\n      body: output.substring(0, 1000) || 'Thank you for your patience. We have reviewed your concerns.',\n      version: 'v2'\n    },\n    revision_notes: { issues_addressed: ['Attempted revision'], changes_made: 'Fallback response' }\n  };\n}\n\nreturn [{\n  json: {\n    ...prevData,\n    sugar_draft_v2: parsed,\n    current_version: 2\n  }\n}];"
+      },
+      "id": "parse-sugar-v2",
+      "name": "Parse Sugar v2",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3340, 480],
+      "notes": "Parses Sugar v2's revised draft."
+    },
+    {
+      "parameters": {
+        "agent": {
+          "__rl": true,
+          "mode": "define"
+        },
+        "promptType": "define",
+        "text": "RE-EVALUATE this revised email draft (v2):\n\nOriginal Customer Email:\nSubject: {{ $json.email_subject }}\nBody: {{ $json.email_body }}\n\nCinnaMon's Sentiment: {{ JSON.stringify($json.cinnamon_analysis) }}\nHatch's Analysis: {{ JSON.stringify($json.hatch_analysis) }}\n\nSugar's REVISED Draft (v2):\n{{ JSON.stringify($json.sugar_draft_v2, null, 2) }}\n\nPREVIOUS EVALUATION (v1 - FAILED):\nScore: {{ $json.qa_score_v1 }}\nIssues: {{ JSON.stringify($json.bishop_evaluation_v1.findings) }}\n\nVerify that Sugar addressed the previous issues.",
+        "options": {
+          "systemMessage": "<s>\n<version_info>\nName: Bishop (QA Evaluator)\nVersion: 1.0\nDate: 2025-11-28\nBusiness: Hattie B's Hot Chicken\nTemperature: 0.0\n</version_info>\n\n<role>\nYou are Bishop, the QA gatekeeper. This is a RE-EVALUATION of a revised draft.\nVerify that Sugar addressed the previous issues.\n</role>\n\n<evaluation_rubrics>\nSafetyCompliance (25%), BrandVoiceCompliance (25%), FactualAccuracy (20%),\nCustomerImpactCompliance (15%), ToneAppropriatenessCompliance (15%)\n\nPASS: Score >= 70 AND no rubric <= 2\nFAIL: Score < 70 OR any rubric <= 2\n</evaluation_rubrics>\n\n<output_format>\nReturn JSON:\n{\n  \"evaluation_report\": {\n    \"overall_status\": \"PASS\" or \"FAIL\",\n    \"overall_score\": [0-100],\n    \"rubric_scores\": {...},\n    \"findings\": [...],\n    \"previous_issues_resolved\": true/false,\n    \"summary\": \"[Assessment of revision]\",\n    \"revision_guidance\": \"[If still FAIL: what else needs fixing]\"\n  }\n}\n</output_format>\n</s>",
+          "maxIterations": 1
+        }
+      },
+      "id": "bishop-v2",
+      "name": "Bishop v2 (Re-eval)",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [3560, 480],
+      "notes": "Re-evaluation of revised draft.\nTemperature: 0.0"
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "options": {
+          "temperature": 0
+        }
+      },
+      "id": "bishop-v2-model",
+      "name": "Bishop v2 Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [3560, 680],
+      "credentials": {
+        "anthropicApi": {
+          "id": "YOUR_ANTHROPIC_CREDENTIAL_ID",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Bishop v2 and check if passed\nconst input = $input.first().json;\nconst output = input.output || input.text || '';\nconst prevData = $('Parse Sugar v2').first().json;\n\nlet parsed;\ntry {\n  const jsonMatch = output.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    parsed = JSON.parse(jsonMatch[0]);\n  } else {\n    throw new Error('No JSON found');\n  }\n} catch (e) {\n  parsed = {\n    evaluation_report: {\n      overall_status: 'FAIL',\n      overall_score: 60,\n      summary: 'Unable to parse Bishop v2 output - escalating to human.',\n      parse_error: true\n    }\n  };\n}\n\nconst evalReport = parsed.evaluation_report || parsed;\nconst passed = evalReport.overall_status === 'PASS';\n\n// Prepare final draft\nlet finalDraft;\nif (passed) {\n  finalDraft = prevData.sugar_draft_v2.email_draft;\n} else {\n  finalDraft = null; // Will escalate\n}\n\nreturn [{\n  json: {\n    ...prevData,\n    bishop_evaluation_v2: evalReport,\n    qa_passed_v2: passed,\n    qa_score_v2: evalReport.overall_score,\n    final_draft: finalDraft\n  }\n}];"
+      },
+      "id": "parse-bishop-v2",
+      "name": "Parse Bishop v2",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3780, 480],
+      "notes": "Parses Bishop v2 and determines next step."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "strict"},
+          "conditions": [
+            {
+              "id": "qa-check-v2",
+              "leftValue": "={{ $json.qa_passed_v2 }}",
+              "rightValue": true,
+              "operator": {"type": "boolean", "operation": "equals"}
+            }
+          ]
+        }
+      },
+      "id": "qa-pass-check-v2",
+      "name": "QA Pass v2?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [4000, 480],
+      "notes": "Routes after v2 revision.\nTRUE: Proceed to Sheets + Holler\nFALSE: Escalate to human"
+    },
+    {
+      "parameters": {
+        "channel": "={{ $('Settings').item.json.SLACK_CHANNEL }}",
+        "text": ":rotating_light: ESCALATION REQUIRED :rotating_light:\n\n**Execution ID:** {{ $json.execution_id }}\n**Customer:** {{ $json.customer_email }}\n**Subject:** \"{{ $json.email_subject }}\"\n\n**Reason:** Unable to pass QA after 2 revision attempts.\n\n---\n**Original Email:**\n{{ $json.email_body }}\n\n---\n**Draft Attempts:**\nv1 Score: {{ $json.qa_score_v1 }}/100\nv2 Score: {{ $json.qa_score_v2 }}/100\n\n**Bishop's Final Feedback:**\n{{ $json.bishop_evaluation_v2.summary || $json.bishop_evaluation_v2.revision_guidance }}\n\n---\n:warning: Please draft response manually.\nReply to this thread when complete.",
+        "otherOptions": {}
+      },
+      "id": "escalation",
+      "name": "Escalate to Human",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [4220, 580],
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "YOUR_SLACK_CREDENTIAL_ID",
+          "name": "Slack"
+        }
+      },
+      "notes": "Posts escalation when QA fails after 2 attempts."
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {"id": "result", "name": "workflow_result", "value": "Escalated to human - QA failed after 2 attempts.", "type": "string"},
+            {"id": "status", "name": "status", "value": "escalated", "type": "string"}
+          ]
+        }
+      },
+      "id": "escalation-end",
+      "name": "Escalation End",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [4440, 580],
+      "notes": "Workflow ends - human will handle manually."
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {"id": "final-draft", "name": "final_draft", "value": "={{ $json.sugar_draft_v2.email_draft }}", "type": "object"},
+            {"id": "qa-score", "name": "qa_score", "value": "={{ $json.qa_score_v2 }}", "type": "number"},
+            {"id": "status", "name": "status", "value": "pending", "type": "string"}
+          ]
+        }
+      },
+      "id": "prepare-for-sheets-v2",
+      "name": "Prepare for Storage v2",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [4220, 380],
+      "notes": "Prepares v2 data for storage."
+    }
+  ],
+  "connections": {
+    "Gmail Trigger": {
+      "main": [[{"node": "Settings", "type": "main", "index": 0}]]
+    },
+    "Manual Trigger": {
+      "main": [[{"node": "Settings", "type": "main", "index": 0}]]
+    },
+    "Settings": {
+      "main": [[{"node": "Temporal Context", "type": "main", "index": 0}]]
+    },
+    "Temporal Context": {
+      "main": [[{"node": "Extract Email Data", "type": "main", "index": 0}]]
+    },
+    "Extract Email Data": {
+      "main": [[{"node": "CinnaMon (Sentiment)", "type": "main", "index": 0}]]
+    },
+    "CinnaMon (Sentiment)": {
+      "main": [[{"node": "Parse CinnaMon", "type": "main", "index": 0}]]
+    },
+    "CinnaMon Model": {
+      "ai_languageModel": [[{"node": "CinnaMon (Sentiment)", "type": "ai_languageModel", "index": 0}]]
+    },
+    "Parse CinnaMon": {
+      "main": [[{"node": "Hatch (Expert)", "type": "main", "index": 0}]]
+    },
+    "Hatch (Expert)": {
+      "main": [[{"node": "Parse Hatch", "type": "main", "index": 0}]]
+    },
+    "Hatch Model": {
+      "ai_languageModel": [[{"node": "Hatch (Expert)", "type": "ai_languageModel", "index": 0}]]
+    },
+    "Librarian Tool": {
+      "ai_tool": [[{"node": "Hatch (Expert)", "type": "ai_tool", "index": 0}]]
+    },
+    "Exa Web Search": {
+      "ai_tool": [[{"node": "Hatch (Expert)", "type": "ai_tool", "index": 0}]]
+    },
+    "Parse Hatch": {
+      "main": [[{"node": "Sugar v1 (Draft)", "type": "main", "index": 0}]]
+    },
+    "Sugar v1 (Draft)": {
+      "main": [[{"node": "Parse Sugar v1", "type": "main", "index": 0}]]
+    },
+    "Sugar v1 Model": {
+      "ai_languageModel": [[{"node": "Sugar v1 (Draft)", "type": "ai_languageModel", "index": 0}]]
+    },
+    "Parse Sugar v1": {
+      "main": [[{"node": "Bishop v1 (QA)", "type": "main", "index": 0}]]
+    },
+    "Bishop v1 (QA)": {
+      "main": [[{"node": "Parse Bishop v1", "type": "main", "index": 0}]]
+    },
+    "Bishop v1 Model": {
+      "ai_languageModel": [[{"node": "Bishop v1 (QA)", "type": "ai_languageModel", "index": 0}]]
+    },
+    "Parse Bishop v1": {
+      "main": [[{"node": "QA Pass?", "type": "main", "index": 0}]]
+    },
+    "QA Pass?": {
+      "main": [
+        [{"node": "Prepare for Storage", "type": "main", "index": 0}],
+        [{"node": "Sugar v2 (Revision)", "type": "main", "index": 0}]
+      ]
+    },
+    "Prepare for Storage": {
+      "main": [[{"node": "Log to Sheets", "type": "main", "index": 0}]]
+    },
+    "Log to Sheets": {
+      "main": [[{"node": "Holler (Briefer)", "type": "main", "index": 0}]]
+    },
+    "Holler (Briefer)": {
+      "main": [[{"node": "Post to Slack", "type": "main", "index": 0}]]
+    },
+    "Holler Model": {
+      "ai_languageModel": [[{"node": "Holler (Briefer)", "type": "ai_languageModel", "index": 0}]]
+    },
+    "Post to Slack": {
+      "main": [[{"node": "Success", "type": "main", "index": 0}]]
+    },
+    "Sugar v2 (Revision)": {
+      "main": [[{"node": "Parse Sugar v2", "type": "main", "index": 0}]]
+    },
+    "Sugar v2 Model": {
+      "ai_languageModel": [[{"node": "Sugar v2 (Revision)", "type": "ai_languageModel", "index": 0}]]
+    },
+    "Parse Sugar v2": {
+      "main": [[{"node": "Bishop v2 (Re-eval)", "type": "main", "index": 0}]]
+    },
+    "Bishop v2 (Re-eval)": {
+      "main": [[{"node": "Parse Bishop v2", "type": "main", "index": 0}]]
+    },
+    "Bishop v2 Model": {
+      "ai_languageModel": [[{"node": "Bishop v2 (Re-eval)", "type": "ai_languageModel", "index": 0}]]
+    },
+    "Parse Bishop v2": {
+      "main": [[{"node": "QA Pass v2?", "type": "main", "index": 0}]]
+    },
+    "QA Pass v2?": {
+      "main": [
+        [{"node": "Prepare for Storage v2", "type": "main", "index": 0}],
+        [{"node": "Escalate to Human", "type": "main", "index": 0}]
+      ]
+    },
+    "Prepare for Storage v2": {
+      "main": [[{"node": "Log to Sheets", "type": "main", "index": 0}]]
+    },
+    "Escalate to Human": {
+      "main": [[{"node": "Escalation End", "type": "main", "index": 0}]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateId": "w1-email-processing-pipeline-hattieb",
+    "instanceId": "mindvalley-ai-mastery",
+    "templateCredsSetupCompleted": false
+  },
+  "tags": [
+    {"name": "HITL", "createdAt": "2025-11-28"},
+    {"name": "HattieB", "createdAt": "2025-11-28"},
+    {"name": "Email", "createdAt": "2025-11-28"},
+    {"name": "Week-4", "createdAt": "2025-11-28"},
+    {"name": "Level-3", "createdAt": "2025-11-28"}
+  ],
+  "versionId": "v1-2025-11-28"
+}

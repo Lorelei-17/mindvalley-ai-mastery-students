@@ -1,0 +1,29 @@
+# Test Knowledge Base
+
+## Company Information
+Company Name: AI Mastery Demo Company
+Founded: 2025
+Mission: Teaching AI skills to non-technical professionals
+
+## Product Information
+Product: AI Customer Service Agent
+Features:
+- Automated email response drafting
+- Brand voice consistency
+- Human-in-the-loop approval
+- Learning from feedback
+
+## Support Policies
+Response Time: Within 24 hours
+Refund Policy: 30-day money-back guarantee
+Support Hours: Monday-Friday, 9am-5pm EST
+
+## Common Questions
+Q: How do I get started?
+A: Complete the setup guide in ONBOARDING.md
+
+Q: What if I get stuck?
+A: Join the office hours sessions or post in the community forum
+
+Q: Do I need coding experience?
+A: No! The course is designed for non-technical users.

@@ -1,0 +1,212 @@
+{
+  "name": "HITL Slack - HattieB",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "hattieb-hitl",
+        "authentication": "headerAuth",
+        "httpMethod": "POST",
+        "options": {}
+      },
+      "id": "a7i9je38-3l9h-0g5k-4h1i-8k5j7i2l0h9g",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "placeholder-webhook-id"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "You are Gigawatt, a message formatter. Take the incoming message and format it for Slack delivery: clear, structured, with appropriate emoji and formatting for readability.",
+        "options": {}
+      },
+      "id": "b8j0kf49-4m0i-1h6l-5i2j-9l6k8j3m1i0h",
+      "name": "Gigawatt - Format",
+      "type": "n8n-nodes-langchain.agent",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "message",
+        "operation": "post",
+        "channelId": "placeholder-channel-id",
+        "text": "={{ $node[\"Gigawatt - Format\"].json.formattedMessage }}",
+        "options": {}
+      },
+      "id": "c9k1lg50-5n1j-2i7m-6j3k-0m7l9k4n2j1i",
+      "name": "Slack Send Message",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [650, 300],
+      "credentials": {
+        "slackApi": {
+          "id": "placeholder-slack-credential",
+          "name": "Slack OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "waitType": "duration",
+        "duration": 3600,
+        "options": {}
+      },
+      "id": "da02mh61-6o2k-3j8n-7k4l-1n8m0l5o3k2j",
+      "name": "Wait for Response",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "comparator": "contains",
+              "value1": "={{ $node[\"Wait for Response\"].json.responseType }}",
+              "value2": "approved"
+            }
+          ]
+        }
+      },
+      "id": "eb13ni72-7p3l-4k9o-8l5m-2o9n1m6p4l3k",
+      "name": "Response Approval Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "finalStatus",
+              "value": "={{ $node[\"Response Approval Check\"].json.status }}"
+            },
+            {
+              "name": "messageId",
+              "value": "={{ $node[\"Slack Send Message\"].json.ts }}"
+            },
+            {
+              "name": "timestamp",
+              "value": "={{ $now.toIso8601() }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fc24oj83-8q4m-5l0p-9m6n-3p0o2n7q5m4l",
+      "name": "Set Final Output",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [1250, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Gigawatt - Format",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gigawatt - Format": {
+      "main": [
+        [
+          {
+            "node": "Slack Send Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Send Message": {
+      "main": [
+        [
+          {
+            "node": "Wait for Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Response": {
+      "main": [
+        [
+          {
+            "node": "Response Approval Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Response Approval Check": {
+      "main": [
+        [
+          {
+            "node": "Set Final Output",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set Final Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "nodeTypes": {
+    "n8n-nodes-base.webhook": {
+      "group": ["trigger"],
+      "name": "Webhook",
+      "description": "Webhook trigger for incoming requests"
+    },
+    "n8n-nodes-langchain.agent": {
+      "group": ["ai"],
+      "name": "AI Agent",
+      "description": "LangChain AI Agent"
+    },
+    "n8n-nodes-base.slack": {
+      "group": ["communication"],
+      "name": "Slack",
+      "description": "Send messages to Slack"
+    },
+    "n8n-nodes-base.wait": {
+      "group": ["logic"],
+      "name": "Wait",
+      "description": "Wait for a specified duration"
+    },
+    "n8n-nodes-base.if": {
+      "group": ["logic"],
+      "name": "IF",
+      "description": "Conditionally execute nodes"
+    },
+    "n8n-nodes-base.set": {
+      "group": ["transform"],
+      "name": "Set",
+      "description": "Set data in workflow"
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "timezone": "UTC"
+  }
+}

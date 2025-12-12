@@ -1,0 +1,329 @@
+{
+  "name": "Librarian Tool (DEC-018)",
+  "description": "Single Smart Librarian - A callable RAG tool that queries multiple Gemini File Search stores. Called by agents (Expert, YGM, QA) via 'Call n8n Workflow' tool.",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger",
+      "name": "When Called by Agent",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "notes": "Entry point when agents call this sub-workflow as a tool.\n\nExpected input:\n- query: string (required)\n- context: object (optional)\n- store_hints: array (optional)\n- call_depth: number (required)"
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "api-key",
+              "name": "gemini_api_key",
+              "value": "YOUR_GEMINI_API_KEY",
+              "type": "string"
+            },
+            {
+              "id": "stores",
+              "name": "store_registry",
+              "value": "={\"policies\":{\"id\":\"YOUR_POLICIES_STORE_ID\",\"keywords\":[\"policy\",\"refund\",\"shipping\",\"returns\",\"terms\"],\"description\":\"Company policies and procedures\"},\"products\":{\"id\":\"YOUR_PRODUCTS_STORE_ID\",\"keywords\":[\"product\",\"pricing\",\"inventory\",\"specs\",\"features\"],\"description\":\"Product information and pricing\"},\"brand\":{\"id\":\"YOUR_BRAND_STORE_ID\",\"keywords\":[\"brand\",\"tone\",\"voice\",\"style\",\"guidelines\"],\"description\":\"Brand guidelines and communication standards\"},\"faq\":{\"id\":\"YOUR_FAQ_STORE_ID\",\"keywords\":[\"faq\",\"question\",\"common\",\"how to\",\"troubleshoot\"],\"description\":\"Frequently asked questions\"}}",
+              "type": "string"
+            },
+            {
+              "id": "max-stores",
+              "name": "max_stores_per_query",
+              "value": 5,
+              "type": "number"
+            },
+            {
+              "id": "system-prompt",
+              "name": "librarian_prompt",
+              "value": "You are the Librarian, a specialized retrieval tool. Your job is to find relevant documents from the knowledge base.\n\nRules:\n1. Analyze the query to understand what information is needed\n2. The workflow has already selected appropriate stores to search\n3. Focus on retrieving the most relevant document chunks\n4. Assess coverage: what was found, what's missing\n5. Return results with clear source attribution\n\nOutput JSON with:\n- status: SUCCESS, NO_RESULTS, or ERROR\n- query_used: the search query you executed\n- coverage_assessment: what was found and how well it answers the query\n- gaps_identified: array of missing information\n- recommendation: guidance for the calling agent",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "store-registry",
+      "name": "Store Registry",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [460, 300],
+      "notes": "CONFIGURE YOUR STORES HERE:\n\n1. Replace YOUR_GEMINI_API_KEY with your actual API key\n2. Replace each YOUR_*_STORE_ID with actual Gemini File Search store IDs\n3. Modify keywords to match your document types\n4. Add or remove stores as needed\n\nSee Store Configuration Guide for details."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate required input fields\nconst input = $('When Called by Agent').first().json;\nconst errors = [];\n\n// Check required fields\nif (!input.query || typeof input.query !== 'string' || input.query.trim() === '') {\n  errors.push({\n    field: 'query',\n    message: 'Missing or empty query string',\n    troubleshooting: ['Ensure calling agent provides a query parameter']\n  });\n}\n\n// Validate call_depth\nconst callDepth = input.call_depth ?? 0;\nif (typeof callDepth !== 'number' || callDepth < 0) {\n  errors.push({\n    field: 'call_depth',\n    message: 'Invalid call_depth (must be a non-negative number)',\n    troubleshooting: ['Set call_depth to 0 for initial calls']\n  });\n}\n\n// Check for loop prevention\nif (callDepth > 3) {\n  return [{\n    json: {\n      status: 'ERROR',\n      error: 'Maximum call depth reached (>3)',\n      recommendation: 'Use available context or ask Research Agent',\n      call_depth: callDepth,\n      validation_passed: false,\n      is_loop_error: true\n    }\n  }];\n}\n\n// Return validation result\nif (errors.length > 0) {\n  return [{\n    json: {\n      status: 'ERROR',\n      error: 'Input validation failed',\n      details: errors,\n      call_depth: callDepth,\n      validation_passed: false,\n      is_loop_error: false\n    }\n  }];\n}\n\n// Validation passed - merge input with defaults\nreturn [{\n  json: {\n    query: input.query.trim(),\n    context: input.context || {},\n    store_hints: input.store_hints || [],\n    call_depth: callDepth,\n    validation_passed: true\n  }\n}];"
+      },
+      "id": "validate-input",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300],
+      "notes": "Validates input from calling agent:\n- query (required)\n- call_depth (loop prevention)\n- context (optional)\n- store_hints (optional)\n\nRejects immediately if call_depth > 3"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "validation-check",
+              "leftValue": "={{ $json.validation_passed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "check-validation",
+      "name": "Validation OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 300],
+      "notes": "Routes based on validation result:\n- TRUE: Continue to store selection\n- FALSE: Return error to calling agent"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Select stores based on query and hints\nconst input = $input.first().json;\nconst storeRegistryStr = $('Store Registry').first().json.store_registry;\nconst storeRegistry = JSON.parse(storeRegistryStr);\nconst maxStores = $('Store Registry').first().json.max_stores_per_query || 5;\n\nconst query = input.query.toLowerCase();\nconst hints = input.store_hints || [];\nconst themes = input.context?.themes || [];\nconst selectedStores = [];\nconst storeNames = [];\n\n// Priority 1: Add hinted stores\nhints.forEach(hint => {\n  const normalizedHint = hint.toLowerCase();\n  if (storeRegistry[normalizedHint] && !selectedStores.includes(storeRegistry[normalizedHint].id)) {\n    selectedStores.push(storeRegistry[normalizedHint].id);\n    storeNames.push(normalizedHint);\n  }\n});\n\n// Priority 2: Add stores matching query keywords\nObject.entries(storeRegistry).forEach(([name, config]) => {\n  if (!selectedStores.includes(config.id)) {\n    const hasKeywordMatch = config.keywords.some(kw => query.includes(kw.toLowerCase()));\n    if (hasKeywordMatch) {\n      selectedStores.push(config.id);\n      storeNames.push(name);\n    }\n  }\n});\n\n// Priority 3: Add stores matching context themes\nif (themes.length > 0) {\n  const themesLower = themes.map(t => t.toLowerCase());\n  Object.entries(storeRegistry).forEach(([name, config]) => {\n    if (!selectedStores.includes(config.id)) {\n      const hasThemeMatch = config.keywords.some(kw => \n        themesLower.some(theme => theme.includes(kw.toLowerCase()) || kw.toLowerCase().includes(theme))\n      );\n      if (hasThemeMatch) {\n        selectedStores.push(config.id);\n        storeNames.push(name);\n      }\n    }\n  });\n}\n\n// Fallback: If no matches, use first 3 stores\nif (selectedStores.length === 0) {\n  const defaultStores = Object.entries(storeRegistry).slice(0, 3);\n  defaultStores.forEach(([name, config]) => {\n    selectedStores.push(config.id);\n    storeNames.push(name);\n  });\n}\n\n// Limit to max stores\nconst finalStores = selectedStores.slice(0, maxStores);\nconst finalNames = storeNames.slice(0, maxStores);\n\nreturn [{\n  json: {\n    ...input,\n    selected_store_ids: finalStores,\n    selected_store_names: finalNames,\n    selection_reason: hints.length > 0 ? 'hint_based' : \n                      selectedStores.length > 0 ? 'keyword_match' : 'fallback_default'\n  }\n}];"
+      },
+      "id": "decide-stores",
+      "name": "Decide Stores to Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 200],
+      "notes": "Selects which stores to query based on:\n1. store_hints from calling agent (priority)\n2. Keywords matching query\n3. Keywords matching context themes\n4. Fallback to first 3 stores\n\nLimited by max_stores_per_query setting."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build the Gemini File Search API request\nconst input = $input.first().json;\nconst apiKey = $('Store Registry').first().json.gemini_api_key;\nconst systemPrompt = $('Store Registry').first().json.librarian_prompt;\n\n// Build the request body\nconst requestBody = {\n  contents: [{\n    role: 'user',\n    parts: [{\n      text: `${systemPrompt}\\n\\n---\\n\\nQUERY: ${input.query}\\n\\nCONTEXT:\\n${JSON.stringify(input.context, null, 2)}\\n\\nSTORES BEING SEARCHED: ${input.selected_store_names.join(', ')}`\n    }]\n  }],\n  tools: [{\n    fileSearch: {\n      storeIds: input.selected_store_ids\n    }\n  }],\n  generationConfig: {\n    temperature: 0.1,\n    maxOutputTokens: 4096\n  }\n};\n\nreturn [{\n  json: {\n    ...input,\n    api_key: apiKey,\n    request_body: requestBody,\n    api_url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`\n  }\n}];"
+      },
+      "id": "build-request",
+      "name": "Build Gemini Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 200],
+      "notes": "Constructs the Gemini File Search API request with:\n- System prompt\n- User query with context\n- Selected store IDs\n- Low temperature (0.1) for consistent retrieval"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.api_url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.request_body) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "gemini-search",
+      "name": "Gemini File Search",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 200],
+      "notes": "Calls Gemini File Search API with multi-store query.\n\nReturns:\n- candidates[0].content.parts[0].text (LLM response)\n- candidates[0].groundingMetadata (retrieval metadata)"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process Gemini File Search response\nconst input = $('Build Gemini Request').first().json;\nconst httpResponse = $input.first().json;\nconst response = httpResponse.body || httpResponse;\n\n// Check for API errors\nif (response.error) {\n  return [{\n    json: {\n      status: 'ERROR',\n      error: response.error.message || 'Gemini API error',\n      error_code: response.error.code || 'API_ERROR',\n      query_used: input.query,\n      stores_queried: input.selected_store_names,\n      documents_found: 0,\n      grounding_confidence: 0,\n      retrieved_chunks: [],\n      coverage_assessment: 'API error prevented retrieval',\n      gaps_identified: ['Unable to search due to API error'],\n      recommendation: 'Check API key and store configuration',\n      duplicate_warning: null,\n      call_depth: (input.call_depth || 0) + 1,\n      troubleshooting: [\n        'Verify Gemini API key is valid',\n        'Check store IDs exist and are accessible',\n        'Review API quota limits'\n      ]\n    }\n  }];\n}\n\n// Extract grounding metadata\nconst candidates = response.candidates || [];\nconst candidate = candidates[0] || {};\nconst groundingMetadata = candidate.groundingMetadata || {};\nconst groundingChunks = groundingMetadata.groundingChunks || [];\nconst groundingSupports = groundingMetadata.groundingSupports || [];\n\n// Extract LLM response text\nconst llmResponseText = candidate.content?.parts?.[0]?.text || '';\n\n// Parse LLM JSON response (if valid)\nlet llmParsed = {};\ntry {\n  // Try to extract JSON from response\n  const jsonMatch = llmResponseText.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    llmParsed = JSON.parse(jsonMatch[0]);\n  }\n} catch (e) {\n  // LLM didn't return valid JSON, use raw text\n  llmParsed = {\n    coverage_assessment: llmResponseText.substring(0, 500),\n    gaps_identified: [],\n    recommendation: 'Parse response manually'\n  };\n}\n\n// Process grounding chunks\nconst seen = new Set();\nconst uniqueChunks = [];\nlet duplicateCount = 0;\n\ngroundingChunks.forEach((chunk, idx) => {\n  const content = chunk.retrievedContext?.text || chunk.web?.snippet || '';\n  const source = chunk.retrievedContext?.uri || chunk.web?.uri || 'unknown';\n  const title = chunk.retrievedContext?.title || chunk.web?.title || source;\n  \n  // Simple dedup by first 100 chars\n  const hash = content.substring(0, 100);\n  if (seen.has(hash)) {\n    duplicateCount++;\n    return;\n  }\n  seen.add(hash);\n  \n  // Get confidence score\n  const support = groundingSupports[idx] || {};\n  const confidence = support.confidenceScores?.[0] || 0.5;\n  \n  // Determine which store this came from (best effort)\n  const storeName = input.selected_store_names.find(name => \n    source.toLowerCase().includes(name.toLowerCase())\n  ) || input.selected_store_names[0] || 'unknown';\n  \n  uniqueChunks.push({\n    chunk_id: `chunk_${idx}`,\n    source: title,\n    store: storeName,\n    content: content.substring(0, 1000), // Limit chunk size\n    relevance: confidence > 0.8 ? 'high' : confidence > 0.5 ? 'medium' : 'low'\n  });\n});\n\n// Calculate average confidence\nconst avgConfidence = uniqueChunks.length > 0\n  ? uniqueChunks.reduce((sum, c) => {\n      const conf = c.relevance === 'high' ? 0.9 : c.relevance === 'medium' ? 0.6 : 0.3;\n      return sum + conf;\n    }, 0) / uniqueChunks.length\n  : 0;\n\n// Build final output\nconst status = uniqueChunks.length > 0 ? 'SUCCESS' : 'NO_RESULTS';\n\nreturn [{\n  json: {\n    status: status,\n    query_used: input.query,\n    stores_queried: input.selected_store_names,\n    documents_found: uniqueChunks.length,\n    grounding_confidence: parseFloat(avgConfidence.toFixed(2)),\n    retrieved_chunks: uniqueChunks,\n    coverage_assessment: llmParsed.coverage_assessment || \n      (uniqueChunks.length > 0 \n        ? `Found ${uniqueChunks.length} relevant chunks from ${input.selected_store_names.join(', ')}`\n        : 'No relevant documents found in searched stores'),\n    gaps_identified: llmParsed.gaps_identified || \n      (uniqueChunks.length === 0 ? ['No matching documents found'] : []),\n    recommendation: llmParsed.recommendation || \n      (uniqueChunks.length > 0 \n        ? 'Use retrieved documents to inform response'\n        : 'Consider broadening search or using general knowledge'),\n    duplicate_warning: duplicateCount > 0 \n      ? `Removed ${duplicateCount} duplicate chunks - consider KB cleanup` \n      : null,\n    call_depth: (input.call_depth || 0) + 1\n  }\n}];"
+      },
+      "id": "process-response",
+      "name": "Process Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 200],
+      "notes": "Processes Gemini response:\n1. Extracts grounding_metadata\n2. Deduplicates chunks\n3. Calculates confidence\n4. Parses LLM JSON if available\n5. Builds final output with receipts"
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "status",
+              "name": "status",
+              "value": "={{ $json.status }}",
+              "type": "string"
+            },
+            {
+              "id": "query",
+              "name": "query_used",
+              "value": "={{ $json.query_used }}",
+              "type": "string"
+            },
+            {
+              "id": "stores",
+              "name": "stores_queried",
+              "value": "={{ $json.stores_queried }}",
+              "type": "array"
+            },
+            {
+              "id": "docs",
+              "name": "documents_found",
+              "value": "={{ $json.documents_found }}",
+              "type": "number"
+            },
+            {
+              "id": "confidence",
+              "name": "grounding_confidence",
+              "value": "={{ $json.grounding_confidence }}",
+              "type": "number"
+            },
+            {
+              "id": "chunks",
+              "name": "retrieved_chunks",
+              "value": "={{ $json.retrieved_chunks }}",
+              "type": "array"
+            },
+            {
+              "id": "coverage",
+              "name": "coverage_assessment",
+              "value": "={{ $json.coverage_assessment }}",
+              "type": "string"
+            },
+            {
+              "id": "gaps",
+              "name": "gaps_identified",
+              "value": "={{ $json.gaps_identified }}",
+              "type": "array"
+            },
+            {
+              "id": "rec",
+              "name": "recommendation",
+              "value": "={{ $json.recommendation }}",
+              "type": "string"
+            },
+            {
+              "id": "dupe",
+              "name": "duplicate_warning",
+              "value": "={{ $json.duplicate_warning }}",
+              "type": "string"
+            },
+            {
+              "id": "depth",
+              "name": "call_depth",
+              "value": "={{ $json.call_depth }}",
+              "type": "number"
+            }
+          ]
+        }
+      },
+      "id": "format-success",
+      "name": "Format Success Output",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [2000, 200],
+      "notes": "Final output formatting for successful retrieval.\nThis is what gets returned to the calling agent."
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "status",
+              "name": "status",
+              "value": "={{ $json.status }}",
+              "type": "string"
+            },
+            {
+              "id": "error",
+              "name": "error",
+              "value": "={{ $json.error }}",
+              "type": "string"
+            },
+            {
+              "id": "rec",
+              "name": "recommendation",
+              "value": "={{ $json.recommendation || 'Check input parameters and try again' }}",
+              "type": "string"
+            },
+            {
+              "id": "depth",
+              "name": "call_depth",
+              "value": "={{ $json.call_depth }}",
+              "type": "number"
+            },
+            {
+              "id": "details",
+              "name": "details",
+              "value": "={{ $json.details }}",
+              "type": "array"
+            }
+          ]
+        }
+      },
+      "id": "format-error",
+      "name": "Format Error Output",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1120, 420],
+      "notes": "Error output formatting.\nReturned when validation fails or loop detected."
+    }
+  ],
+  "connections": {
+    "When Called by Agent": {
+      "main": [[{"node": "Store Registry", "type": "main", "index": 0}]]
+    },
+    "Store Registry": {
+      "main": [[{"node": "Validate Input", "type": "main", "index": 0}]]
+    },
+    "Validate Input": {
+      "main": [[{"node": "Validation OK?", "type": "main", "index": 0}]]
+    },
+    "Validation OK?": {
+      "main": [
+        [{"node": "Decide Stores to Query", "type": "main", "index": 0}],
+        [{"node": "Format Error Output", "type": "main", "index": 0}]
+      ]
+    },
+    "Decide Stores to Query": {
+      "main": [[{"node": "Build Gemini Request", "type": "main", "index": 0}]]
+    },
+    "Build Gemini Request": {
+      "main": [[{"node": "Gemini File Search", "type": "main", "index": 0}]]
+    },
+    "Gemini File Search": {
+      "main": [[{"node": "Process Response", "type": "main", "index": 0}]]
+    },
+    "Process Response": {
+      "main": [[{"node": "Format Success Output", "type": "main", "index": 0}]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateId": "librarian-tool-dec018",
+    "instanceId": "mindvalley-ai-mastery"
+  },
+  "tags": [
+    {"name": "RAG", "createdAt": "2025-11-27"},
+    {"name": "Gemini", "createdAt": "2025-11-27"},
+    {"name": "Tool", "createdAt": "2025-11-27"},
+    {"name": "DEC-018", "createdAt": "2025-11-27"},
+    {"name": "Week-3", "createdAt": "2025-11-27"},
+    {"name": "Multi-Store", "createdAt": "2025-11-27"}
+  ],
+  "versionId": "v1-2025-11-27"
+}

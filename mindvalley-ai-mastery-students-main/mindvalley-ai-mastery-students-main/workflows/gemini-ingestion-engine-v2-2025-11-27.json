@@ -1,0 +1,465 @@
+{
+  "name": "Gemini File Search Ingestion Engine v2",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger-manual",
+      "name": "Manual Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 200],
+      "notes": "For direct use: Click 'Test Workflow' to upload a document."
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "gemini-ingestion",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "trigger-webhook",
+      "name": "Webhook Start",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 400],
+      "webhookId": "gemini-ingestion-webhook",
+      "notes": "For automation: Called by Drive Watcher workflow.\nExpects: file_binary (base64), file_name, doc_type, api_key, store_id"
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "api-key",
+              "name": "api_key",
+              "value": "YOUR_GEMINI_API_KEY_HERE",
+              "type": "string"
+            },
+            {
+              "id": "store-id",
+              "name": "store_id",
+              "value": "fileSearchStores/YOUR_STORE_ID_HERE",
+              "type": "string"
+            },
+            {
+              "id": "file-path",
+              "name": "file_path",
+              "value": "/path/to/your/document.pdf",
+              "type": "string"
+            },
+            {
+              "id": "doc-type",
+              "name": "doc_type",
+              "value": "general",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "set-config-manual",
+      "name": "Your Settings (Manual)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [460, 200],
+      "notes": "EDIT THIS NODE for manual uploads:\n\n1. api_key: Get from aistudio.google.dev\n2. store_id: Your Gemini File Search store ID\n3. file_path: Full path to your document\n4. doc_type: One of: policy, faq, procedure, product, or general"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Process webhook input and extract config\nconst input = $input.first().json;\n\n// Extract config from webhook body\nconst config = {\n  api_key: input.api_key || input.body?.api_key,\n  store_id: input.store_id || input.body?.store_id,\n  doc_type: input.doc_type || input.body?.doc_type || 'general',\n  file_name: input.file_name || input.body?.file_name || 'uploaded_document',\n  // Flag to indicate this came from webhook\n  source: 'webhook'\n};\n\n// Get binary data from webhook\nconst binaryData = input.file_binary || input.body?.file_binary;\nconst mimeType = input.mime_type || input.body?.mime_type || 'application/octet-stream';\n\nif (!binaryData) {\n  return [{\n    json: {\n      status: 'ERROR',\n      error_code: 'NO_FILE_DATA',\n      message: 'No file data received in webhook request.',\n      troubleshooting: [\n        'Ensure file_binary is included in the request body',\n        'File should be base64 encoded'\n      ]\n    }\n  }];\n}\n\nreturn [{\n  json: config,\n  binary: {\n    data: {\n      data: binaryData,\n      mimeType: mimeType,\n      fileName: config.file_name\n    }\n  }\n}];"
+      },
+      "id": "code-webhook-config",
+      "name": "Process Webhook Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 400],
+      "notes": "Extracts configuration and binary data from webhook request."
+    },
+    {
+      "parameters": {
+        "fileSelector": "={{ $json.file_path }}",
+        "options": {}
+      },
+      "id": "read-file",
+      "name": "Read Your Document",
+      "type": "n8n-nodes-base.readBinaryFiles",
+      "typeVersion": 1,
+      "position": [680, 200],
+      "notes": "Reads the file from your computer (manual mode only)."
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "id": "merge-inputs",
+      "name": "Merge Inputs",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [900, 300],
+      "notes": "Combines manual and webhook inputs into single flow."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Gemini File Search Ingestion Engine v2\n// Supports both manual file path input AND webhook binary input\n\nconst items = $input.all();\n\n// Find the item with binary data and config\nlet binaryData = null;\nlet config = {};\n\nfor (const item of items) {\n  // Check for config from manual path\n  if (item.json.api_key && item.json.file_path && !item.json.source) {\n    config = {\n      api_key: item.json.api_key,\n      store_id: item.json.store_id,\n      doc_type: item.json.doc_type || 'general',\n      source: 'manual'\n    };\n  }\n  \n  // Check for config from webhook\n  if (item.json.source === 'webhook') {\n    config = {\n      api_key: item.json.api_key,\n      store_id: item.json.store_id,\n      doc_type: item.json.doc_type || 'general',\n      file_name: item.json.file_name,\n      source: 'webhook'\n    };\n  }\n  \n  // Check for binary data\n  if (item.binary && item.binary.data) {\n    binaryData = item.binary.data;\n  }\n}\n\nconst apiKey = config.api_key;\nconst storeId = config.store_id;\nconst docType = config.doc_type || 'general';\n\n// Get file from binary data\nif (!binaryData) {\n  return [{\n    json: {\n      status: 'ERROR',\n      error_code: 'NO_FILE',\n      message: 'No file data found. Check that your file path is correct.',\n      troubleshooting: [\n        'Verify the file exists at the specified path',\n        'Make sure the path is absolute (starts with /)',\n        'Check file permissions'\n      ]\n    }\n  }];\n}\n\nconst fileBuffer = Buffer.from(binaryData.data, 'base64');\nconst mimeType = binaryData.mimeType;\nconst fileName = config.file_name || binaryData.fileName || 'document';\nconst fileSize = fileBuffer.length;\n\n// Validate file type\nconst validTypes = {\n  'application/pdf': 'PDF',\n  'text/plain': 'TXT',\n  'text/markdown': 'Markdown',\n  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'DOCX'\n};\n\nif (!validTypes[mimeType]) {\n  return [{\n    json: {\n      status: 'ERROR',\n      error_code: 'INVALID_FILE_TYPE',\n      message: `File type not supported: ${mimeType}`,\n      supported_types: 'PDF, TXT, MD, DOCX',\n      troubleshooting: [\n        'Convert your file to one of the supported formats',\n        'PDF is recommended for best results'\n      ]\n    }\n  }];\n}\n\n// Validate file size (100MB limit)\nconst maxSize = 100 * 1024 * 1024;\nif (fileSize > maxSize) {\n  return [{\n    json: {\n      status: 'ERROR',\n      error_code: 'FILE_TOO_LARGE',\n      message: `File is ${(fileSize / 1024 / 1024).toFixed(2)}MB. Maximum is 100MB.`,\n      troubleshooting: [\n        'Split the document into smaller files',\n        'Remove images or compress the PDF'\n      ]\n    }\n  }];\n}\n\n// Validate API key format\nif (!apiKey || apiKey === 'YOUR_GEMINI_API_KEY_HERE' || apiKey.length < 20) {\n  return [{\n    json: {\n      status: 'ERROR',\n      error_code: 'INVALID_API_KEY',\n      message: 'Please add your Gemini API key in the \"Your Settings\" node.',\n      troubleshooting: [\n        'Go to aistudio.google.dev to get your API key',\n        'Copy the full API key into the api_key field'\n      ]\n    }\n  }];\n}\n\n// Validate store ID format\nif (!storeId || !storeId.startsWith('fileSearchStores/') || storeId === 'fileSearchStores/YOUR_STORE_ID_HERE') {\n  return [{\n    json: {\n      status: 'ERROR',\n      error_code: 'INVALID_STORE_ID',\n      message: 'Please add your File Search Store ID in the \"Your Settings\" node.',\n      troubleshooting: [\n        'Store ID should start with \"fileSearchStores/\"',\n        'Create a store first using the setup instructions',\n        'Example format: fileSearchStores/abc123xyz'\n      ]\n    }\n  }];\n}\n\n// Prepare metadata\nconst uploadDate = new Date().toISOString().split('T')[0];\nconst metadata = [\n  { key: 'version', string_value: '1.0' },\n  { key: 'status', string_value: 'current' },\n  { key: 'doc_type', string_value: docType },\n  { key: 'upload_date', string_value: uploadDate },\n  { key: 'file_name', string_value: fileName }\n];\n\ntry {\n  // Step 1: Initiate resumable upload\n  const initUrl = `https://generativelanguage.googleapis.com/upload/v1beta/${storeId}:uploadToFileSearchStore?key=${apiKey}`;\n  \n  const initResponse = await fetch(initUrl, {\n    method: 'POST',\n    headers: {\n      'X-Goog-Upload-Protocol': 'resumable',\n      'X-Goog-Upload-Command': 'start',\n      'X-Goog-Upload-Header-Content-Length': String(fileSize),\n      'X-Goog-Upload-Header-Content-Type': mimeType,\n      'Content-Type': 'application/json'\n    },\n    body: JSON.stringify({\n      file_search_store_file: {\n        display_name: fileName,\n        custom_metadata: metadata\n      }\n    })\n  });\n\n  if (!initResponse.ok) {\n    const errorText = await initResponse.text();\n    let errorCode = 'API_ERROR';\n    let message = `Gemini API error: ${errorText}`;\n    let troubleshooting = ['Check your API key is valid', 'Verify your store ID is correct'];\n    \n    if (initResponse.status === 401 || initResponse.status === 403) {\n      errorCode = 'AUTH_FAILURE';\n      message = 'Authentication failed. Your API key may be invalid or expired.';\n      troubleshooting = [\n        'Go to aistudio.google.dev and verify your API key',\n        'Generate a new API key if needed',\n        'Make sure the Gemini API is enabled for your project'\n      ];\n    } else if (initResponse.status === 404) {\n      errorCode = 'STORE_NOT_FOUND';\n      message = 'File Search Store not found. Check your store ID.';\n      troubleshooting = [\n        'Verify your store_id starts with \"fileSearchStores/\"',\n        'Make sure the store exists (create one if needed)',\n        'Check for typos in the store ID'\n      ];\n    } else if (initResponse.status === 429) {\n      errorCode = 'QUOTA_EXCEEDED';\n      message = 'Rate limit reached. Wait a moment and try again.';\n      troubleshooting = [\n        'Wait 60 seconds before retrying',\n        'Check your API quota in Google Cloud Console',\n        'Consider upgrading your plan if you hit limits frequently'\n      ];\n    }\n    \n    return [{\n      json: {\n        status: 'ERROR',\n        error_code: errorCode,\n        message: message,\n        http_status: initResponse.status,\n        troubleshooting: troubleshooting\n      }\n    }];\n  }\n\n  const uploadUrl = initResponse.headers.get('x-goog-upload-url');\n  if (!uploadUrl) {\n    return [{\n      json: {\n        status: 'ERROR',\n        error_code: 'NO_UPLOAD_URL',\n        message: 'Failed to get upload URL from Gemini API.',\n        troubleshooting: [\n          'This is unusual - try again in a few minutes',\n          'Check Gemini API status page for outages'\n        ]\n      }\n    }];\n  }\n\n  // Step 2: Upload file bytes\n  const uploadResponse = await fetch(uploadUrl, {\n    method: 'PUT',\n    headers: {\n      'Content-Length': String(fileSize),\n      'X-Goog-Upload-Offset': '0',\n      'X-Goog-Upload-Command': 'upload, finalize'\n    },\n    body: fileBuffer\n  });\n\n  if (!uploadResponse.ok) {\n    const errorText = await uploadResponse.text();\n    return [{\n      json: {\n        status: 'ERROR',\n        error_code: 'UPLOAD_FAILED',\n        message: `Upload failed: ${errorText}`,\n        http_status: uploadResponse.status,\n        troubleshooting: [\n          'Try with a smaller file',\n          'Check your internet connection',\n          'Try again in a few minutes'\n        ]\n      }\n    }];\n  }\n\n  const result = await uploadResponse.json();\n\n  // Return success with all relevant info\n  return [{\n    json: {\n      status: 'SUCCESS',\n      message: 'Document uploaded successfully!',\n      file_id: result.name,\n      file_name: fileName,\n      file_type: validTypes[mimeType],\n      mime_type: mimeType,\n      size_bytes: fileSize,\n      size_formatted: `${(fileSize / 1024).toFixed(1)} KB`,\n      store_id: storeId,\n      source: config.source || 'manual',\n      metadata: {\n        version: '1.0',\n        status: 'current',\n        doc_type: docType,\n        upload_date: uploadDate\n      },\n      // Pass to verification step\n      _verification: {\n        api_key: apiKey,\n        store_id: storeId,\n        file_id: result.name\n      }\n    }\n  }];\n\n} catch (error) {\n  return [{\n    json: {\n      status: 'ERROR',\n      error_code: 'UNEXPECTED_ERROR',\n      message: error.message || 'An unexpected error occurred',\n      troubleshooting: [\n        'Check your internet connection',\n        'Verify your API key and store ID',\n        'Try again in a few minutes',\n        'If the problem persists, check the N8N execution logs'\n      ]\n    }\n  }];\n}"
+      },
+      "id": "code-upload",
+      "name": "Upload to Gemini",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 300],
+      "notes": "This node validates your file and uploads it to Gemini File Search.\n\nIt handles:\n- File type validation (PDF, TXT, MD, DOCX)\n- File size check (max 100MB)\n- API authentication\n- Resumable upload protocol\n- Error handling with clear messages\n\nSupports both manual (file path) and webhook (binary) inputs."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-success",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "SUCCESS",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-success",
+      "name": "Upload OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/{{ $json._verification.store_id }}/files?key={{ $json._verification.api_key }}",
+        "options": {}
+      },
+      "id": "http-verify",
+      "name": "Verify Upload",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 200],
+      "notes": "Queries the store to confirm the file was added successfully."
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "final-status",
+              "name": "status",
+              "value": "={{ $('Upload to Gemini').item.json.status }}",
+              "type": "string"
+            },
+            {
+              "id": "final-message",
+              "name": "message",
+              "value": "={{ $('Upload to Gemini').item.json.message }}",
+              "type": "string"
+            },
+            {
+              "id": "final-file-id",
+              "name": "file_id",
+              "value": "={{ $('Upload to Gemini').item.json.file_id }}",
+              "type": "string"
+            },
+            {
+              "id": "final-file-name",
+              "name": "file_name",
+              "value": "={{ $('Upload to Gemini').item.json.file_name }}",
+              "type": "string"
+            },
+            {
+              "id": "final-file-type",
+              "name": "file_type",
+              "value": "={{ $('Upload to Gemini').item.json.file_type }}",
+              "type": "string"
+            },
+            {
+              "id": "final-size",
+              "name": "size",
+              "value": "={{ $('Upload to Gemini').item.json.size_formatted }}",
+              "type": "string"
+            },
+            {
+              "id": "final-store",
+              "name": "store_id",
+              "value": "={{ $('Upload to Gemini').item.json.store_id }}",
+              "type": "string"
+            },
+            {
+              "id": "final-source",
+              "name": "source",
+              "value": "={{ $('Upload to Gemini').item.json.source }}",
+              "type": "string"
+            },
+            {
+              "id": "final-metadata",
+              "name": "metadata",
+              "value": "={{ $('Upload to Gemini').item.json.metadata }}",
+              "type": "object"
+            },
+            {
+              "id": "final-verified",
+              "name": "verified",
+              "value": "={{ $json.files ? $json.files.some(f => f.name === $('Upload to Gemini').item.json.file_id) : false }}",
+              "type": "boolean"
+            },
+            {
+              "id": "final-next",
+              "name": "next_steps",
+              "value": "Your document is now in your knowledge base! The Librarian agent can now search and retrieve it.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "set-success",
+      "name": "Success Result",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1780, 200],
+      "notes": "Formats the final success response with verification status."
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "error-status",
+              "name": "status",
+              "value": "={{ $json.status }}",
+              "type": "string"
+            },
+            {
+              "id": "error-code",
+              "name": "error_code",
+              "value": "={{ $json.error_code }}",
+              "type": "string"
+            },
+            {
+              "id": "error-message",
+              "name": "message",
+              "value": "={{ $json.message }}",
+              "type": "string"
+            },
+            {
+              "id": "error-troubleshooting",
+              "name": "troubleshooting",
+              "value": "={{ $json.troubleshooting }}",
+              "type": "array"
+            }
+          ]
+        }
+      },
+      "id": "set-error",
+      "name": "Error Result",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1560, 400],
+      "notes": "Formats the error response with troubleshooting guidance."
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "webhook-response-success",
+      "name": "Webhook Response (Success)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2000, 200],
+      "notes": "Returns success response to webhook caller."
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "webhook-response-error",
+      "name": "Webhook Response (Error)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1780, 400],
+      "notes": "Returns error response to webhook caller."
+    }
+  ],
+  "connections": {
+    "Manual Start": {
+      "main": [
+        [
+          {
+            "node": "Your Settings (Manual)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Start": {
+      "main": [
+        [
+          {
+            "node": "Process Webhook Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Your Settings (Manual)": {
+      "main": [
+        [
+          {
+            "node": "Read Your Document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Webhook Input": {
+      "main": [
+        [
+          {
+            "node": "Merge Inputs",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Read Your Document": {
+      "main": [
+        [
+          {
+            "node": "Merge Inputs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Inputs": {
+      "main": [
+        [
+          {
+            "node": "Upload to Gemini",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload to Gemini": {
+      "main": [
+        [
+          {
+            "node": "Upload OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload OK?": {
+      "main": [
+        [
+          {
+            "node": "Verify Upload",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Upload": {
+      "main": [
+        [
+          {
+            "node": "Success Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Success Result": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response (Success)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Result": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response (Error)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateId": "gemini-ingestion-engine-v2",
+    "instanceId": "mindvalley-ai-mastery"
+  },
+  "pinData": {},
+  "versionId": "v2-2025-11-27",
+  "tags": [
+    {
+      "name": "Gemini",
+      "createdAt": "2025-11-27T00:00:00.000Z",
+      "updatedAt": "2025-11-27T00:00:00.000Z"
+    },
+    {
+      "name": "RAG",
+      "createdAt": "2025-11-27T00:00:00.000Z",
+      "updatedAt": "2025-11-27T00:00:00.000Z"
+    },
+    {
+      "name": "Week-3",
+      "createdAt": "2025-11-27T00:00:00.000Z",
+      "updatedAt": "2025-11-27T00:00:00.000Z"
+    }
+  ]
+}

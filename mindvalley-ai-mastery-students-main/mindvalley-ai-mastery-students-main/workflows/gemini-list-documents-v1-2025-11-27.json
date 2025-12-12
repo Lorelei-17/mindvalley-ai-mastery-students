@@ -1,0 +1,550 @@
+{
+  "name": "Gemini File Search - List Documents",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger-start",
+      "name": "Start Here",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "notes": "Click 'Test Workflow' to sync your Dashboard with your Gemini store."
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "api-key",
+              "name": "api_key",
+              "value": "YOUR_GEMINI_API_KEY_HERE",
+              "type": "string"
+            },
+            {
+              "id": "store-id",
+              "name": "store_id",
+              "value": "fileSearchStores/YOUR_STORE_ID_HERE",
+              "type": "string"
+            },
+            {
+              "id": "sheet-id",
+              "name": "sheet_id",
+              "value": "YOUR_GOOGLE_SHEET_ID_HERE",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "set-config",
+      "name": "Your Settings",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [460, 300],
+      "notes": "EDIT THIS NODE:\n\n1. api_key: Your Gemini API key from aistudio.google.dev\n2. store_id: Your File Search Store ID (starts with 'fileSearchStores/')\n3. sheet_id: Your Google Sheet ID from the URL"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Validate configuration before making API call\nconst config = $input.first().json;\n\n// Validate API key\nif (!config.api_key || config.api_key === 'YOUR_GEMINI_API_KEY_HERE' || config.api_key.length < 20) {\n  return [{\n    json: {\n      status: 'ERROR',\n      error_code: 'INVALID_API_KEY',\n      message: 'Please add your Gemini API key in the \"Your Settings\" node.',\n      troubleshooting: [\n        'Go to aistudio.google.dev to get your API key',\n        'Copy the full API key into the api_key field'\n      ]\n    }\n  }];\n}\n\n// Validate store ID\nif (!config.store_id || !config.store_id.startsWith('fileSearchStores/') || config.store_id === 'fileSearchStores/YOUR_STORE_ID_HERE') {\n  return [{\n    json: {\n      status: 'ERROR',\n      error_code: 'INVALID_STORE_ID',\n      message: 'Please add your File Search Store ID in the \"Your Settings\" node.',\n      troubleshooting: [\n        'Store ID should start with \"fileSearchStores/\"',\n        'Example format: fileSearchStores/abc123xyz'\n      ]\n    }\n  }];\n}\n\n// Validate sheet ID\nif (!config.sheet_id || config.sheet_id === 'YOUR_GOOGLE_SHEET_ID_HERE') {\n  return [{\n    json: {\n      status: 'ERROR',\n      error_code: 'INVALID_SHEET_ID',\n      message: 'Please add your Google Sheet ID in the \"Your Settings\" node.',\n      troubleshooting: [\n        'Open your Google Sheet',\n        'Look at the URL: docs.google.com/spreadsheets/d/SHEET_ID/edit',\n        'Copy the SHEET_ID part'\n      ]\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    status: 'VALIDATED',\n    config: config\n  }\n}];"
+      },
+      "id": "code-validate",
+      "name": "Validate Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300],
+      "notes": "Validates configuration before making API calls."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-validated",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "VALIDATED",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-valid",
+      "name": "Config Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/{{ $json.config.store_id }}/files?key={{ $json.config.api_key }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "id": "http-list",
+      "name": "Get Documents from Gemini",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 200],
+      "notes": "Calls Gemini API to list all files in the store."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Process API response and format for Google Sheets\nconst response = $input.first().json;\nconst config = $('Validate Config').first().json.config;\n\n// Check for API errors\nif (response.statusCode && response.statusCode !== 200) {\n  let errorCode = 'API_ERROR';\n  let message = `Gemini API returned status ${response.statusCode}`;\n  let troubleshooting = ['Check your API key', 'Verify your store ID'];\n  \n  if (response.statusCode === 401 || response.statusCode === 403) {\n    errorCode = 'AUTH_FAILURE';\n    message = 'Authentication failed. Your API key may be invalid.';\n    troubleshooting = [\n      'Go to aistudio.google.dev and verify your API key',\n      'Generate a new API key if needed'\n    ];\n  } else if (response.statusCode === 404) {\n    errorCode = 'STORE_NOT_FOUND';\n    message = 'File Search Store not found.';\n    troubleshooting = [\n      'Check your store_id is correct',\n      'Make sure the store exists'\n    ];\n  } else if (response.statusCode === 429) {\n    errorCode = 'QUOTA_EXCEEDED';\n    message = 'Rate limit reached. Wait a moment and try again.';\n    troubleshooting = ['Wait 60 seconds before retrying'];\n  }\n  \n  return [{\n    json: {\n      status: 'ERROR',\n      error_code: errorCode,\n      message: message,\n      troubleshooting: troubleshooting\n    }\n  }];\n}\n\n// Get files array from response\nconst data = response.body || response;\nconst files = data.files || [];\nconst now = new Date().toLocaleString();\n\n// If no files, return empty result\nif (files.length === 0) {\n  return [{\n    json: {\n      status: 'SUCCESS',\n      message: 'Your knowledge base is empty. Upload some documents first!',\n      document_count: 0,\n      documents: [],\n      sheet_rows: [],\n      config: config,\n      verified_at: now\n    }\n  }];\n}\n\n// Format each file for the Dashboard\nconst sheetRows = files.map(file => {\n  // Extract metadata if available\n  const metadata = file.customMetadata || [];\n  const getMetaValue = (key) => {\n    const meta = metadata.find(m => m.key === key);\n    return meta ? meta.stringValue : '';\n  };\n  \n  // Get display name or fall back to file ID\n  const displayName = file.displayName || file.name.split('/').pop();\n  \n  return {\n    doc_name: displayName,\n    doc_type: getMetaValue('doc_type') || 'general',\n    status: 'Active',\n    uploaded: getMetaValue('upload_date') || 'Unknown',\n    last_verified: now,\n    file_id: file.name,\n    notes: ''\n  };\n});\n\nreturn [{\n  json: {\n    status: 'SUCCESS',\n    message: `Found ${files.length} document(s) in your knowledge base.`,\n    document_count: files.length,\n    documents: sheetRows,\n    sheet_rows: sheetRows,\n    config: config,\n    verified_at: now\n  }\n}];"
+      },
+      "id": "code-process",
+      "name": "Process Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 200],
+      "notes": "Formats API response for Google Sheets Dashboard."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-success",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "SUCCESS",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-success",
+      "name": "API Success?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1560, 200]
+    },
+    {
+      "parameters": {
+        "operation": "clear",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $json.config.sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Dashboard",
+          "mode": "list",
+          "cachedResultName": "Dashboard"
+        },
+        "options": {
+          "startRowNumber": 2
+        }
+      },
+      "id": "sheets-clear",
+      "name": "Clear Old Data",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1780, 100],
+      "notes": "Clears existing Dashboard rows before writing fresh data.",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-cred",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Process Results').first().json.config.sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Dashboard",
+          "mode": "list",
+          "cachedResultName": "Dashboard"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {}
+        },
+        "options": {}
+      },
+      "id": "sheets-write",
+      "name": "Write to Dashboard",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [2000, 100],
+      "notes": "Writes document list to Dashboard tab.",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-cred",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Convert documents array to individual items for Google Sheets\nconst data = $('Process Results').first().json;\n\nif (!data.sheet_rows || data.sheet_rows.length === 0) {\n  // No documents - nothing to write\n  return [];\n}\n\n// Return each row as a separate item\nreturn data.sheet_rows.map(row => ({\n  json: row\n}));"
+      },
+      "id": "code-split",
+      "name": "Split Into Rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, -20],
+      "notes": "Converts document array into individual rows for Sheets."
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Process Results').first().json.config.sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Activity Log",
+          "mode": "list",
+          "cachedResultName": "Activity Log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ $now.toISO() }}",
+            "Action": "SYNC",
+            "Document": "All Documents",
+            "Result": "Success",
+            "Details": "={{ $('Process Results').first().json.message }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "sheets-log",
+      "name": "Log to Activity",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [2220, 100],
+      "notes": "Logs the sync operation to Activity Log.",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-cred",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "final-status",
+              "name": "status",
+              "value": "={{ $('Process Results').first().json.status }}",
+              "type": "string"
+            },
+            {
+              "id": "final-message",
+              "name": "message",
+              "value": "={{ $('Process Results').first().json.message }}",
+              "type": "string"
+            },
+            {
+              "id": "final-count",
+              "name": "document_count",
+              "value": "={{ $('Process Results').first().json.document_count }}",
+              "type": "number"
+            },
+            {
+              "id": "final-verified",
+              "name": "verified_at",
+              "value": "={{ $('Process Results').first().json.verified_at }}",
+              "type": "string"
+            },
+            {
+              "id": "final-next",
+              "name": "next_steps",
+              "value": "Your Dashboard is now synced with your Gemini store. Check the Dashboard tab in your Google Sheet.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "set-success",
+      "name": "Success Result",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [2440, 100],
+      "notes": "Formats the final success response."
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "error-status",
+              "name": "status",
+              "value": "={{ $json.status }}",
+              "type": "string"
+            },
+            {
+              "id": "error-code",
+              "name": "error_code",
+              "value": "={{ $json.error_code }}",
+              "type": "string"
+            },
+            {
+              "id": "error-message",
+              "name": "message",
+              "value": "={{ $json.message }}",
+              "type": "string"
+            },
+            {
+              "id": "error-troubleshooting",
+              "name": "troubleshooting",
+              "value": "={{ $json.troubleshooting }}",
+              "type": "array"
+            }
+          ]
+        }
+      },
+      "id": "set-error",
+      "name": "Error Result",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1340, 400],
+      "notes": "Formats error response with troubleshooting guidance."
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "api-error-status",
+              "name": "status",
+              "value": "={{ $json.status }}",
+              "type": "string"
+            },
+            {
+              "id": "api-error-code",
+              "name": "error_code",
+              "value": "={{ $json.error_code }}",
+              "type": "string"
+            },
+            {
+              "id": "api-error-message",
+              "name": "message",
+              "value": "={{ $json.message }}",
+              "type": "string"
+            },
+            {
+              "id": "api-error-troubleshooting",
+              "name": "troubleshooting",
+              "value": "={{ $json.troubleshooting }}",
+              "type": "array"
+            }
+          ]
+        }
+      },
+      "id": "set-api-error",
+      "name": "API Error Result",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1780, 300],
+      "notes": "Formats API error response."
+    }
+  ],
+  "connections": {
+    "Start Here": {
+      "main": [
+        [
+          {
+            "node": "Your Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Your Settings": {
+      "main": [
+        [
+          {
+            "node": "Validate Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Config": {
+      "main": [
+        [
+          {
+            "node": "Config Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config Valid?": {
+      "main": [
+        [
+          {
+            "node": "Get Documents from Gemini",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Documents from Gemini": {
+      "main": [
+        [
+          {
+            "node": "Process Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Results": {
+      "main": [
+        [
+          {
+            "node": "API Success?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "API Success?": {
+      "main": [
+        [
+          {
+            "node": "Clear Old Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "API Error Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clear Old Data": {
+      "main": [
+        [
+          {
+            "node": "Split Into Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Into Rows": {
+      "main": [
+        [
+          {
+            "node": "Write to Dashboard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write to Dashboard": {
+      "main": [
+        [
+          {
+            "node": "Log to Activity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log to Activity": {
+      "main": [
+        [
+          {
+            "node": "Success Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateId": "gemini-list-documents-v1",
+    "instanceId": "mindvalley-ai-mastery"
+  },
+  "pinData": {},
+  "versionId": "v1-2025-11-27",
+  "tags": [
+    {
+      "name": "Gemini",
+      "createdAt": "2025-11-27T00:00:00.000Z",
+      "updatedAt": "2025-11-27T00:00:00.000Z"
+    },
+    {
+      "name": "Management",
+      "createdAt": "2025-11-27T00:00:00.000Z",
+      "updatedAt": "2025-11-27T00:00:00.000Z"
+    },
+    {
+      "name": "Week-3",
+      "createdAt": "2025-11-27T00:00:00.000Z",
+      "updatedAt": "2025-11-27T00:00:00.000Z"
+    }
+  ]
+}

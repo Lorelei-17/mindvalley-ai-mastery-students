@@ -1,0 +1,682 @@
+{
+  "name": "Gemini File Search - Drive Watcher",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "triggerOn": "specificFolder",
+        "folderToWatch": {
+          "__rl": true,
+          "value": "={{ $json.watch_folder_id }}",
+          "mode": "id"
+        },
+        "event": "fileCreated",
+        "options": {}
+      },
+      "id": "trigger-drive",
+      "name": "Watch KB-Uploads Folder",
+      "type": "n8n-nodes-base.googleDriveTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "notes": "Polls your KB-Uploads folder every 60 seconds for new files.",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "google-drive-cred",
+          "name": "Google Drive OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "api-key",
+              "name": "api_key",
+              "value": "YOUR_GEMINI_API_KEY_HERE",
+              "type": "string"
+            },
+            {
+              "id": "store-id",
+              "name": "store_id",
+              "value": "fileSearchStores/YOUR_STORE_ID_HERE",
+              "type": "string"
+            },
+            {
+              "id": "sheet-id",
+              "name": "sheet_id",
+              "value": "YOUR_GOOGLE_SHEET_ID_HERE",
+              "type": "string"
+            },
+            {
+              "id": "watch-folder",
+              "name": "watch_folder_id",
+              "value": "YOUR_KB_UPLOADS_FOLDER_ID",
+              "type": "string"
+            },
+            {
+              "id": "processed-folder",
+              "name": "processed_folder_id",
+              "value": "YOUR_PROCESSED_FOLDER_ID",
+              "type": "string"
+            },
+            {
+              "id": "failed-folder",
+              "name": "failed_folder_id",
+              "value": "YOUR_FAILED_FOLDER_ID",
+              "type": "string"
+            },
+            {
+              "id": "ingestion-webhook",
+              "name": "ingestion_webhook_url",
+              "value": "YOUR_N8N_WEBHOOK_URL/webhook/gemini-ingestion",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "set-config",
+      "name": "Your Settings",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [460, 300],
+      "notes": "EDIT THIS NODE:\n\n1. api_key: Your Gemini API key\n2. store_id: Your File Search Store ID\n3. sheet_id: Your Dashboard Google Sheet ID\n4. watch_folder_id: KB-Uploads folder ID\n5. processed_folder_id: Processed subfolder ID\n6. failed_folder_id: Failed subfolder ID\n7. ingestion_webhook_url: URL from your Ingestion Engine v2 workflow"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Extract file metadata from Drive trigger\nconst config = $('Your Settings').first().json;\nconst driveFile = $input.first().json;\n\n// Extract file info\nconst fileId = driveFile.id;\nconst fileName = driveFile.name;\nconst mimeType = driveFile.mimeType;\nconst fileSize = parseInt(driveFile.size || 0);\nconst modifiedTime = driveFile.modifiedTime;\n\n// Create idempotency key for duplicate detection\nconst idempotencyKey = `${fileId}_${modifiedTime}`;\n\n// Validate file type\nconst validTypes = {\n  'application/pdf': 'PDF',\n  'text/plain': 'TXT',\n  'text/markdown': 'Markdown',\n  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'DOCX'\n};\n\nconst extension = fileName.split('.').pop().toLowerCase();\nconst isValid = validTypes[mimeType] || ['pdf', 'txt', 'md', 'docx'].includes(extension);\n\nif (!isValid) {\n  return [{\n    json: {\n      status: 'INVALID_TYPE',\n      file_id: fileId,\n      file_name: fileName,\n      mime_type: mimeType,\n      error_message: `File type not supported: ${extension}. Use PDF, DOCX, TXT, or MD.`,\n      config: config\n    }\n  }];\n}\n\n// Check file size (100MB limit)\nconst maxSize = 100 * 1024 * 1024;\nif (fileSize > maxSize) {\n  return [{\n    json: {\n      status: 'TOO_LARGE',\n      file_id: fileId,\n      file_name: fileName,\n      file_size_mb: (fileSize / 1024 / 1024).toFixed(2),\n      error_message: `File is ${(fileSize / 1024 / 1024).toFixed(2)}MB. Maximum is 100MB.`,\n      config: config\n    }\n  }];\n}\n\n// Determine doc_type from file name or default\nlet docType = 'general';\nconst lowerName = fileName.toLowerCase();\nif (lowerName.includes('policy') || lowerName.includes('terms') || lowerName.includes('privacy')) {\n  docType = 'policy';\n} else if (lowerName.includes('faq') || lowerName.includes('question')) {\n  docType = 'faq';\n} else if (lowerName.includes('how') || lowerName.includes('guide') || lowerName.includes('procedure')) {\n  docType = 'procedure';\n} else if (lowerName.includes('product') || lowerName.includes('catalog') || lowerName.includes('spec')) {\n  docType = 'product';\n}\n\nreturn [{\n  json: {\n    status: 'VALID',\n    file_id: fileId,\n    file_name: fileName,\n    mime_type: mimeType,\n    file_size: fileSize,\n    doc_type: docType,\n    idempotency_key: idempotencyKey,\n    detected_at: new Date().toISOString(),\n    config: config\n  }\n}];"
+      },
+      "id": "code-extract",
+      "name": "Extract File Info",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300],
+      "notes": "Extracts file metadata and validates file type/size."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-valid",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "VALID",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-valid",
+      "name": "File Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $json.config.sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Upload Queue",
+          "mode": "list",
+          "cachedResultName": "Upload Queue"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "File Name": "={{ $json.file_name }}",
+            "Status": "Uploading",
+            "Detected": "={{ $json.detected_at }}",
+            "Processed": "",
+            "Error Message": ""
+          }
+        },
+        "options": {}
+      },
+      "id": "sheets-queue-start",
+      "name": "Add to Upload Queue",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1120, 200],
+      "notes": "Logs the file to Upload Queue as 'Uploading'.",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-cred",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $('Extract File Info').first().json.file_id }}",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "drive-download",
+      "name": "Download File",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [1340, 200],
+      "notes": "Downloads the file from Google Drive.",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "google-drive-cred",
+          "name": "Google Drive OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Extract File Info').first().json.config.ingestion_webhook_url }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"api_key\": \"{{ $('Extract File Info').first().json.config.api_key }}\",\n  \"store_id\": \"{{ $('Extract File Info').first().json.config.store_id }}\",\n  \"file_name\": \"{{ $('Extract File Info').first().json.file_name }}\",\n  \"doc_type\": \"{{ $('Extract File Info').first().json.doc_type }}\",\n  \"mime_type\": \"{{ $('Extract File Info').first().json.mime_type }}\",\n  \"file_binary\": \"{{ $binary.data.data }}\"\n}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "id": "http-ingest",
+      "name": "Call Ingestion Workflow",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 200],
+      "notes": "Calls the Ingestion Engine v2 webhook to upload to Gemini."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Process ingestion response\nconst response = $input.first().json;\nconst fileInfo = $('Extract File Info').first().json;\n\n// Check response\nlet status = 'UNKNOWN';\nlet geminiFileId = null;\nlet errorMessage = null;\n\nif (response.body) {\n  // Parse response body\n  const body = typeof response.body === 'string' ? JSON.parse(response.body) : response.body;\n  \n  if (body.status === 'SUCCESS') {\n    status = 'SUCCESS';\n    geminiFileId = body.file_id;\n  } else {\n    status = 'FAILED';\n    errorMessage = body.message || body.error_code || 'Unknown error';\n  }\n} else if (response.status === 'SUCCESS') {\n  status = 'SUCCESS';\n  geminiFileId = response.file_id;\n} else {\n  status = 'FAILED';\n  errorMessage = response.message || response.error_code || 'Ingestion workflow error';\n}\n\nreturn [{\n  json: {\n    ingestion_status: status,\n    gemini_file_id: geminiFileId,\n    error_message: errorMessage,\n    file_info: fileInfo,\n    config: fileInfo.config\n  }\n}];"
+      },
+      "id": "code-process-response",
+      "name": "Process Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 200],
+      "notes": "Parses the ingestion workflow response."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-success",
+              "leftValue": "={{ $json.ingestion_status }}",
+              "rightValue": "SUCCESS",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-success",
+      "name": "Ingestion Success?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2000, 200]
+    },
+    {
+      "parameters": {
+        "operation": "move",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $json.file_info.file_id }}",
+          "mode": "id"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "={{ $json.config.processed_folder_id }}",
+          "mode": "id"
+        }
+      },
+      "id": "drive-move-success",
+      "name": "Move to Processed",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [2220, 100],
+      "notes": "Moves successfully uploaded file to Processed folder.",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "google-drive-cred",
+          "name": "Google Drive OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Process Response').first().json.config.sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Dashboard",
+          "mode": "list",
+          "cachedResultName": "Dashboard"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "doc_name": "={{ $('Process Response').first().json.file_info.file_name }}",
+            "doc_type": "={{ $('Process Response').first().json.file_info.doc_type }}",
+            "status": "Active",
+            "uploaded": "={{ $now.toFormat('yyyy-MM-dd') }}",
+            "last_verified": "={{ $now.toLocaleString() }}",
+            "file_id": "={{ $('Process Response').first().json.gemini_file_id }}",
+            "notes": "Auto-uploaded via Drive"
+          }
+        },
+        "options": {}
+      },
+      "id": "sheets-dashboard",
+      "name": "Add to Dashboard",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [2440, 100],
+      "notes": "Adds the new document to Dashboard.",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-cred",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Process Response').first().json.config.sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Activity Log",
+          "mode": "list",
+          "cachedResultName": "Activity Log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ $now.toISO() }}",
+            "Action": "UPLOAD",
+            "Document": "={{ $('Process Response').first().json.file_info.file_name }}",
+            "Result": "Success",
+            "Details": "Auto-uploaded via Drive Watcher"
+          }
+        },
+        "options": {}
+      },
+      "id": "sheets-log-success",
+      "name": "Log Success",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [2660, 100],
+      "notes": "Logs successful upload to Activity Log.",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-cred",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "move",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $json.file_info.file_id }}",
+          "mode": "id"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "={{ $json.config.failed_folder_id }}",
+          "mode": "id"
+        }
+      },
+      "id": "drive-move-failed",
+      "name": "Move to Failed",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [2220, 300],
+      "notes": "Moves failed file to Failed folder.",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "google-drive-cred",
+          "name": "Google Drive OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Process Response').first().json.config.sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Activity Log",
+          "mode": "list",
+          "cachedResultName": "Activity Log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ $now.toISO() }}",
+            "Action": "UPLOAD",
+            "Document": "={{ $('Process Response').first().json.file_info.file_name }}",
+            "Result": "Failed",
+            "Details": "={{ $('Process Response').first().json.error_message }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "sheets-log-failed",
+      "name": "Log Failed",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [2440, 300],
+      "notes": "Logs failed upload to Activity Log.",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-cred",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "move",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $json.file_id }}",
+          "mode": "id"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "={{ $json.config.failed_folder_id }}",
+          "mode": "id"
+        }
+      },
+      "id": "drive-move-invalid",
+      "name": "Move Invalid to Failed",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [1120, 400],
+      "notes": "Moves invalid file type to Failed folder.",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "google-drive-cred",
+          "name": "Google Drive OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $json.config.sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Activity Log",
+          "mode": "list",
+          "cachedResultName": "Activity Log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ $now.toISO() }}",
+            "Action": "UPLOAD",
+            "Document": "={{ $json.file_name }}",
+            "Result": "Skipped",
+            "Details": "={{ $json.error_message }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "sheets-log-invalid",
+      "name": "Log Skipped",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1340, 400],
+      "notes": "Logs skipped file to Activity Log.",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-cred",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Watch KB-Uploads Folder": {
+      "main": [
+        [
+          {
+            "node": "Your Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Your Settings": {
+      "main": [
+        [
+          {
+            "node": "Extract File Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract File Info": {
+      "main": [
+        [
+          {
+            "node": "File Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "File Valid?": {
+      "main": [
+        [
+          {
+            "node": "Add to Upload Queue",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Move Invalid to Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add to Upload Queue": {
+      "main": [
+        [
+          {
+            "node": "Download File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download File": {
+      "main": [
+        [
+          {
+            "node": "Call Ingestion Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Ingestion Workflow": {
+      "main": [
+        [
+          {
+            "node": "Process Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Response": {
+      "main": [
+        [
+          {
+            "node": "Ingestion Success?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ingestion Success?": {
+      "main": [
+        [
+          {
+            "node": "Move to Processed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Move to Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Move to Processed": {
+      "main": [
+        [
+          {
+            "node": "Add to Dashboard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add to Dashboard": {
+      "main": [
+        [
+          {
+            "node": "Log Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Move to Failed": {
+      "main": [
+        [
+          {
+            "node": "Log Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Move Invalid to Failed": {
+      "main": [
+        [
+          {
+            "node": "Log Skipped",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateId": "gemini-drive-watcher-v1",
+    "instanceId": "mindvalley-ai-mastery"
+  },
+  "pinData": {},
+  "versionId": "v1-2025-11-27",
+  "tags": [
+    {
+      "name": "Gemini",
+      "createdAt": "2025-11-27T00:00:00.000Z",
+      "updatedAt": "2025-11-27T00:00:00.000Z"
+    },
+    {
+      "name": "Automation",
+      "createdAt": "2025-11-27T00:00:00.000Z",
+      "updatedAt": "2025-11-27T00:00:00.000Z"
+    },
+    {
+      "name": "Week-3",
+      "createdAt": "2025-11-27T00:00:00.000Z",
+      "updatedAt": "2025-11-27T00:00:00.000Z"
+    }
+  ]
+}

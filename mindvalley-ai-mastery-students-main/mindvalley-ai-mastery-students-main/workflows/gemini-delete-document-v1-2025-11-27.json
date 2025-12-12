@@ -1,0 +1,676 @@
+{
+  "name": "Gemini File Search - Delete Document",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger-start",
+      "name": "Start Here",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "notes": "Click 'Test Workflow' to delete a document. Make sure you've set the file_id in the Settings node."
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "api-key",
+              "name": "api_key",
+              "value": "YOUR_GEMINI_API_KEY_HERE",
+              "type": "string"
+            },
+            {
+              "id": "store-id",
+              "name": "store_id",
+              "value": "fileSearchStores/YOUR_STORE_ID_HERE",
+              "type": "string"
+            },
+            {
+              "id": "file-id",
+              "name": "file_id",
+              "value": "fileSearchStores/YOUR_STORE_ID/files/FILE_ID_TO_DELETE",
+              "type": "string"
+            },
+            {
+              "id": "sheet-id",
+              "name": "sheet_id",
+              "value": "YOUR_GOOGLE_SHEET_ID_HERE",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "set-config",
+      "name": "Your Settings",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [460, 300],
+      "notes": "EDIT THIS NODE:\n\n1. api_key: Your Gemini API key\n2. store_id: Your File Search Store ID\n3. file_id: The FULL file ID to delete (from your Dashboard's File ID column)\n4. sheet_id: Your Google Sheet ID"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Validate configuration before making API call\nconst config = $input.first().json;\n\n// Validate API key\nif (!config.api_key || config.api_key === 'YOUR_GEMINI_API_KEY_HERE' || config.api_key.length < 20) {\n  return [{\n    json: {\n      status: 'ERROR',\n      error_code: 'INVALID_API_KEY',\n      message: 'Please add your Gemini API key in the \"Your Settings\" node.',\n      troubleshooting: [\n        'Go to aistudio.google.dev to get your API key',\n        'Copy the full API key into the api_key field'\n      ]\n    }\n  }];\n}\n\n// Validate store ID\nif (!config.store_id || !config.store_id.startsWith('fileSearchStores/') || config.store_id === 'fileSearchStores/YOUR_STORE_ID_HERE') {\n  return [{\n    json: {\n      status: 'ERROR',\n      error_code: 'INVALID_STORE_ID',\n      message: 'Please add your File Search Store ID in the \"Your Settings\" node.',\n      troubleshooting: [\n        'Store ID should start with \"fileSearchStores/\"',\n        'Example format: fileSearchStores/abc123xyz'\n      ]\n    }\n  }];\n}\n\n// Validate file ID\nif (!config.file_id || config.file_id.includes('FILE_ID_TO_DELETE') || !config.file_id.includes('/files/')) {\n  return [{\n    json: {\n      status: 'ERROR',\n      error_code: 'INVALID_FILE_ID',\n      message: 'Please enter the File ID of the document you want to delete.',\n      troubleshooting: [\n        'Copy the File ID from the Dashboard tab (column F)',\n        'Format: fileSearchStores/xxx/files/yyy',\n        'Make sure you copy the FULL ID'\n      ]\n    }\n  }];\n}\n\n// Validate sheet ID\nif (!config.sheet_id || config.sheet_id === 'YOUR_GOOGLE_SHEET_ID_HERE') {\n  return [{\n    json: {\n      status: 'ERROR',\n      error_code: 'INVALID_SHEET_ID',\n      message: 'Please add your Google Sheet ID in the \"Your Settings\" node.',\n      troubleshooting: [\n        'Open your Google Sheet',\n        'Look at the URL: docs.google.com/spreadsheets/d/SHEET_ID/edit',\n        'Copy the SHEET_ID part'\n      ]\n    }\n  }];\n}\n\n// Extract just the file name for logging\nconst fileName = config.file_id.split('/').pop();\n\nreturn [{\n  json: {\n    status: 'VALIDATED',\n    config: config,\n    file_name: fileName\n  }\n}];"
+      },
+      "id": "code-validate",
+      "name": "Validate Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300],
+      "notes": "Validates all configuration before making API calls."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-validated",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "VALIDATED",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-valid",
+      "name": "Config Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/{{ $json.config.store_id }}/files?key={{ $json.config.api_key }}",
+        "options": {}
+      },
+      "id": "http-check",
+      "name": "Check Document Exists",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 200],
+      "notes": "First verify the document exists before deleting."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Check if the file exists in the store\nconst response = $input.first().json;\nconst config = $('Validate Config').first().json.config;\nconst targetFileId = config.file_id;\n\n// Get files list\nconst files = response.files || [];\n\n// Check if target file exists\nconst fileExists = files.some(f => f.name === targetFileId);\n\nif (!fileExists) {\n  // Find similar files to help user\n  const similarFiles = files.slice(0, 3).map(f => f.name);\n  \n  return [{\n    json: {\n      status: 'ERROR',\n      error_code: 'DOC_NOT_FOUND',\n      message: `Document not found in your knowledge base.`,\n      target_file: targetFileId,\n      troubleshooting: [\n        'Check that you copied the full File ID from Dashboard',\n        'The document may have already been deleted',\n        'Run the List Documents workflow to refresh your Dashboard'\n      ],\n      available_files: similarFiles.length > 0 ? similarFiles : ['No files found in store']\n    }\n  }];\n}\n\n// Find the file details\nconst targetFile = files.find(f => f.name === targetFileId);\n\nreturn [{\n  json: {\n    status: 'FILE_EXISTS',\n    config: config,\n    target_file: targetFileId,\n    display_name: targetFile.displayName || targetFileId.split('/').pop()\n  }\n}];"
+      },
+      "id": "code-check",
+      "name": "Verify File Exists",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 200],
+      "notes": "Confirms the document exists before attempting deletion."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-exists",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "FILE_EXISTS",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-exists",
+      "name": "File Exists?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1560, 200]
+    },
+    {
+      "parameters": {
+        "method": "DELETE",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/{{ $json.target_file }}?key={{ $json.config.api_key }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "id": "http-delete",
+      "name": "Delete from Gemini",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1780, 100],
+      "notes": "Calls the Gemini API to delete the document."
+    },
+    {
+      "parameters": {
+        "amount": 2,
+        "unit": "seconds"
+      },
+      "id": "wait-verify",
+      "name": "Wait for Consistency",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [2000, 100],
+      "notes": "Wait 2 seconds for eventual consistency before verification."
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/{{ $('Verify File Exists').first().json.config.store_id }}/files?key={{ $('Verify File Exists').first().json.config.api_key }}",
+        "options": {}
+      },
+      "id": "http-verify",
+      "name": "Verify Deletion",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2220, 100],
+      "notes": "Queries the store to confirm the document was actually deleted."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Verify the deletion was successful\nconst response = $input.first().json;\nconst config = $('Verify File Exists').first().json.config;\nconst targetFileId = $('Verify File Exists').first().json.target_file;\nconst displayName = $('Verify File Exists').first().json.display_name;\nconst deleteResponse = $('Delete from Gemini').first().json;\n\n// Check if delete API returned error\nif (deleteResponse.statusCode && deleteResponse.statusCode >= 400) {\n  return [{\n    json: {\n      status: 'ERROR',\n      error_code: 'DELETE_FAILED',\n      message: `Delete request failed with status ${deleteResponse.statusCode}`,\n      troubleshooting: [\n        'Check your API key has delete permissions',\n        'Try again in a few minutes',\n        'The file may have already been deleted'\n      ]\n    }\n  }];\n}\n\n// Check if file still exists in store\nconst files = response.files || [];\nconst fileStillExists = files.some(f => f.name === targetFileId);\n\nif (fileStillExists) {\n  return [{\n    json: {\n      status: 'WARNING',\n      error_code: 'VERIFICATION_FAILED',\n      message: `Delete may not have completed. File still appears in store.`,\n      troubleshooting: [\n        'The deletion may be processing - wait a minute and run List Documents',\n        'Try the delete operation again',\n        'If persistent, check Google AI Studio for issues'\n      ]\n    }\n  }];\n}\n\n// Success! File is gone\nreturn [{\n  json: {\n    status: 'SUCCESS',\n    message: `Document deleted successfully: ${displayName}`,\n    deleted_file_id: targetFileId,\n    display_name: displayName,\n    verified: true,\n    config: config\n  }\n}];"
+      },
+      "id": "code-verify",
+      "name": "Check Deletion Verified",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2440, 100],
+      "notes": "Confirms the document no longer exists in the store."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-verified",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "SUCCESS",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-verified",
+      "name": "Delete Verified?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2660, 100]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $json.config.sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Activity Log",
+          "mode": "list",
+          "cachedResultName": "Activity Log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ $now.toISO() }}",
+            "Action": "DELETE",
+            "Document": "={{ $json.display_name }}",
+            "Result": "Success",
+            "Details": "Verified deleted from store"
+          }
+        },
+        "options": {}
+      },
+      "id": "sheets-log-success",
+      "name": "Log Success",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [2880, 0],
+      "notes": "Logs successful deletion to Activity Log.",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-cred",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "final-status",
+              "name": "status",
+              "value": "SUCCESS",
+              "type": "string"
+            },
+            {
+              "id": "final-message",
+              "name": "message",
+              "value": "={{ $('Check Deletion Verified').first().json.message }}",
+              "type": "string"
+            },
+            {
+              "id": "final-deleted-file",
+              "name": "deleted_file",
+              "value": "={{ $('Check Deletion Verified').first().json.display_name }}",
+              "type": "string"
+            },
+            {
+              "id": "final-verified",
+              "name": "verified",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "final-next",
+              "name": "next_steps",
+              "value": "Document deleted. Run the 'List Documents' workflow to refresh your Dashboard.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "set-success",
+      "name": "Success Result",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [3100, 0],
+      "notes": "Formats the final success response."
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Verify File Exists').first().json.config.sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Activity Log",
+          "mode": "list",
+          "cachedResultName": "Activity Log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ $now.toISO() }}",
+            "Action": "DELETE",
+            "Document": "={{ $('Verify File Exists').first().json.display_name }}",
+            "Result": "Warning",
+            "Details": "={{ $json.message }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "sheets-log-warning",
+      "name": "Log Warning",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [2880, 200],
+      "notes": "Logs verification failure to Activity Log.",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-cred",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "warning-status",
+              "name": "status",
+              "value": "={{ $('Check Deletion Verified').first().json.status }}",
+              "type": "string"
+            },
+            {
+              "id": "warning-code",
+              "name": "error_code",
+              "value": "={{ $('Check Deletion Verified').first().json.error_code }}",
+              "type": "string"
+            },
+            {
+              "id": "warning-message",
+              "name": "message",
+              "value": "={{ $('Check Deletion Verified').first().json.message }}",
+              "type": "string"
+            },
+            {
+              "id": "warning-troubleshooting",
+              "name": "troubleshooting",
+              "value": "={{ $('Check Deletion Verified').first().json.troubleshooting }}",
+              "type": "array"
+            }
+          ]
+        }
+      },
+      "id": "set-warning",
+      "name": "Warning Result",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [3100, 200],
+      "notes": "Formats the warning response."
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "error-status",
+              "name": "status",
+              "value": "={{ $json.status }}",
+              "type": "string"
+            },
+            {
+              "id": "error-code",
+              "name": "error_code",
+              "value": "={{ $json.error_code }}",
+              "type": "string"
+            },
+            {
+              "id": "error-message",
+              "name": "message",
+              "value": "={{ $json.message }}",
+              "type": "string"
+            },
+            {
+              "id": "error-troubleshooting",
+              "name": "troubleshooting",
+              "value": "={{ $json.troubleshooting }}",
+              "type": "array"
+            }
+          ]
+        }
+      },
+      "id": "set-error",
+      "name": "Error Result",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1340, 400],
+      "notes": "Formats error response with troubleshooting guidance."
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "notfound-status",
+              "name": "status",
+              "value": "={{ $json.status }}",
+              "type": "string"
+            },
+            {
+              "id": "notfound-code",
+              "name": "error_code",
+              "value": "={{ $json.error_code }}",
+              "type": "string"
+            },
+            {
+              "id": "notfound-message",
+              "name": "message",
+              "value": "={{ $json.message }}",
+              "type": "string"
+            },
+            {
+              "id": "notfound-troubleshooting",
+              "name": "troubleshooting",
+              "value": "={{ $json.troubleshooting }}",
+              "type": "array"
+            }
+          ]
+        }
+      },
+      "id": "set-notfound",
+      "name": "Not Found Result",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1780, 300],
+      "notes": "Formats response when document not found."
+    }
+  ],
+  "connections": {
+    "Start Here": {
+      "main": [
+        [
+          {
+            "node": "Your Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Your Settings": {
+      "main": [
+        [
+          {
+            "node": "Validate Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Config": {
+      "main": [
+        [
+          {
+            "node": "Config Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config Valid?": {
+      "main": [
+        [
+          {
+            "node": "Check Document Exists",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Document Exists": {
+      "main": [
+        [
+          {
+            "node": "Verify File Exists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify File Exists": {
+      "main": [
+        [
+          {
+            "node": "File Exists?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "File Exists?": {
+      "main": [
+        [
+          {
+            "node": "Delete from Gemini",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Not Found Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete from Gemini": {
+      "main": [
+        [
+          {
+            "node": "Wait for Consistency",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Consistency": {
+      "main": [
+        [
+          {
+            "node": "Verify Deletion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Deletion": {
+      "main": [
+        [
+          {
+            "node": "Check Deletion Verified",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Deletion Verified": {
+      "main": [
+        [
+          {
+            "node": "Delete Verified?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete Verified?": {
+      "main": [
+        [
+          {
+            "node": "Log Success",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Warning",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Success": {
+      "main": [
+        [
+          {
+            "node": "Success Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Warning": {
+      "main": [
+        [
+          {
+            "node": "Warning Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateId": "gemini-delete-document-v1",
+    "instanceId": "mindvalley-ai-mastery"
+  },
+  "pinData": {},
+  "versionId": "v1-2025-11-27",
+  "tags": [
+    {
+      "name": "Gemini",
+      "createdAt": "2025-11-27T00:00:00.000Z",
+      "updatedAt": "2025-11-27T00:00:00.000Z"
+    },
+    {
+      "name": "Management",
+      "createdAt": "2025-11-27T00:00:00.000Z",
+      "updatedAt": "2025-11-27T00:00:00.000Z"
+    },
+    {
+      "name": "Week-3",
+      "createdAt": "2025-11-27T00:00:00.000Z",
+      "updatedAt": "2025-11-27T00:00:00.000Z"
+    }
+  ]
+}
